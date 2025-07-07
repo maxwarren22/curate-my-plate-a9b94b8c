@@ -14,6 +14,81 @@ export type Database = {
   }
   public: {
     Tables: {
+      disliked_ingredients: {
+        Row: {
+          created_at: string
+          id: string
+          ingredient_name: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ingredient_name: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ingredient_name?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      meal_plans: {
+        Row: {
+          created_at: string
+          id: string
+          plan_data: Json
+          updated_at: string
+          user_id: string | null
+          week_start_date: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          plan_data: Json
+          updated_at?: string
+          user_id?: string | null
+          week_start_date: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          plan_data?: Json
+          updated_at?: string
+          user_id?: string | null
+          week_start_date?: string
+        }
+        Relationships: []
+      }
+      pantry_items: {
+        Row: {
+          created_at: string
+          expiry_date: string | null
+          id: string
+          ingredient_name: string
+          quantity: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          expiry_date?: string | null
+          id?: string
+          ingredient_name: string
+          quantity?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          expiry_date?: string | null
+          id?: string
+          ingredient_name?: string
+          quantity?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           budget: string | null
@@ -22,7 +97,7 @@ export type Database = {
           cuisine_preferences: string[] | null
           dietary_restrictions: string[] | null
           display_name: string | null
-          id: string
+          email: string | null
           meal_types: string[] | null
           serving_size: string | null
           skill_level: string | null
@@ -36,12 +111,12 @@ export type Database = {
           cuisine_preferences?: string[] | null
           dietary_restrictions?: string[] | null
           display_name?: string | null
-          id?: string
+          email?: string | null
           meal_types?: string[] | null
           serving_size?: string | null
           skill_level?: string | null
           updated_at?: string
-          user_id: string
+          user_id?: string
         }
         Update: {
           budget?: string | null
@@ -50,12 +125,83 @@ export type Database = {
           cuisine_preferences?: string[] | null
           dietary_restrictions?: string[] | null
           display_name?: string | null
-          id?: string
+          email?: string | null
           meal_types?: string[] | null
           serving_size?: string | null
           skill_level?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      shopping_lists: {
+        Row: {
+          created_at: string
+          id: string
+          items: Json
+          meal_plan_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          items: Json
+          meal_plan_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          items?: Json
+          meal_plan_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shopping_lists_meal_plan_id_fkey"
+            columns: ["meal_plan_id"]
+            isOneToOne: false
+            referencedRelation: "meal_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscriptions: {
+        Row: {
+          created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          plan_type: string
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan_type?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan_type?: string
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
