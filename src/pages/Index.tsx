@@ -1,13 +1,61 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState } from "react";
+import { LandingPage } from "@/components/LandingPage";
+import { Quiz } from "@/components/Quiz";
+import { Dashboard } from "@/components/Dashboard";
+
+type AppState = 'landing' | 'quiz' | 'dashboard';
+
+interface QuizData {
+  dietaryRestrictions: string[];
+  mealTypes: string[];
+  cookingTime: string;
+  cuisinePreferences: string[];
+  skillLevel: string;
+  servingSize: string;
+  budget: string;
+}
 
 const Index = () => {
+  const [appState, setAppState] = useState<AppState>('landing');
+  const [userProfile, setUserProfile] = useState<QuizData | null>(null);
+
+  const handleStartQuiz = () => {
+    setAppState('quiz');
+  };
+
+  const handleQuizComplete = (data: QuizData) => {
+    setUserProfile(data);
+    setAppState('dashboard');
+  };
+
+  const handleBackToLanding = () => {
+    setAppState('landing');
+  };
+
+  const handleBackToQuiz = () => {
+    setAppState('quiz');
+  };
+
+  if (appState === 'quiz') {
+    return (
+      <Quiz 
+        onComplete={handleQuizComplete} 
+        onBack={handleBackToLanding}
+      />
+    );
+  }
+
+  if (appState === 'dashboard' && userProfile) {
+    return (
+      <Dashboard 
+        userProfile={userProfile}
+        onBackToQuiz={handleBackToQuiz}
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <LandingPage onStartQuiz={handleStartQuiz} />
   );
 };
 
