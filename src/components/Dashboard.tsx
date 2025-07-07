@@ -68,10 +68,11 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
         return;
       }
 
-      if (mealPlan?.plan_data?.meals) {
+      if (mealPlan?.plan_data && typeof mealPlan.plan_data === 'object' && mealPlan.plan_data !== null && 'meals' in mealPlan.plan_data) {
         // Convert meal plan data to the expected format
         const convertedPlan: Record<string, Recipe[]> = {};
-        Object.entries(mealPlan.plan_data.meals).forEach(([day, meal]: [string, any]) => {
+        const planData = mealPlan.plan_data as { meals: Record<string, any> };
+        Object.entries(planData.meals).forEach(([day, meal]: [string, any]) => {
           convertedPlan[day] = [{
             id: `${day}-${meal.name}`,
             name: meal.name,
