@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useAuth } from "@/hooks/useAuth";
 import heroImage from "@/assets/hero-food.jpg";
 
 interface LandingPageProps {
@@ -7,8 +8,26 @@ interface LandingPageProps {
 }
 
 export const LandingPage = ({ onStartQuiz }: LandingPageProps) => {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-screen bg-background">
+      {/* Navigation */}
+      <nav className="absolute top-0 left-0 right-0 z-20 p-6">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-white">MealCraft</h1>
+          {!user && (
+            <Button 
+              variant="outline" 
+              className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+              onClick={onStartQuiz}
+            >
+              Sign In
+            </Button>
+          )}
+        </div>
+      </nav>
+
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center bg-gradient-hero overflow-hidden">
         <div className="absolute inset-0 opacity-20">

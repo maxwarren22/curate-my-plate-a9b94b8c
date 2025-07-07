@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
 import { RecipeModal } from "./RecipeModal";
 
 interface Recipe {
@@ -27,6 +28,7 @@ interface DashboardProps {
 }
 
 export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
+  const { signOut } = useAuth();
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
   // Mock data for the meal plan
@@ -131,6 +133,9 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
               </Button>
               <Button variant="fresh">
                 Email Plan
+              </Button>
+              <Button variant="outline" onClick={signOut}>
+                Sign Out
               </Button>
             </div>
           </div>
