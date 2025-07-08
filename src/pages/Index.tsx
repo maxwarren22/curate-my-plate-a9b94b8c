@@ -85,7 +85,7 @@ const Index = () => {
       // Save quiz data to user profile
       const { error } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
           dietary_restrictions: data.dietaryRestrictions,
           meal_types: data.mealTypes,
           cooking_time: data.cookingTime,
