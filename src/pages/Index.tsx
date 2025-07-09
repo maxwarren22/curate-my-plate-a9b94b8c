@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
-import { LandingPage } from "@/components/LandingPage";
-import { Quiz } from "@/components/Quiz";
-import { Dashboard } from "@/components/Dashboard";
-import { AuthPage } from "@/components/AuthPage";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
-type AppState = 'landing' | 'quiz' | 'dashboard';
+import { LandingPage } from "@/components/LandingPage";
+import { AuthPage } from "@/components/AuthPage";
+import { Quiz } from "@/components/Quiz";
+import { Dashboard } from "@/components/Dashboard";
+import { Skeleton } from "@/components/ui/skeleton";
 
+// This interface defines the data structure used within the React app (camelCase)
 interface QuizData {
   dietaryRestrictions: string[];
   mealTypes: string[];
@@ -19,38 +20,36 @@ interface QuizData {
   budget: string;
 }
 
+// Define the possible states for the main application view
+type AppState = 'loading' | 'auth' | 'quiz' | 'dashboard' | 'landing';
+
 const Index = () => {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const [appState, setAppState] = useState<AppState>('landing');
+
+  const [appState, setAppState] = useState<AppState>('loading');
   const [userProfile, setUserProfile] = useState<QuizData | null>(null);
-  const [showAuth, setShowAuth] = useState(false);
 
-  // Load user profile when authenticated
-  useEffect(() => {
-    if (user) {
-      loadUserProfile();
+  const checkUserProfile = useCallback(async () => {
+    if (!user) {
+      setAppState('landing');
+      return;
     }
-  }, [user]);
-
-  const loadUserProfile = async () => {
-    if (!user) return;
 
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('user_id', user.id)
-        .maybeSingle();
+        .single();
 
-      if (error) {
-        console.error('Error loading profile:', error);
-        return;
+      if (error && error.code !== 'PGRST116') {
+        throw error;
       }
 
-      if (profile && profile.dietary_restrictions) {
-        // Convert profile data to QuizData format
-        const profileData: QuizData = {
+      if (profile) {
+        // ** THE FIX IS HERE: Map snake_case from DB to camelCase for the app **
+        const mappedProfile: QuizData = {
           dietaryRestrictions: profile.dietary_restrictions || [],
           mealTypes: profile.meal_types || [],
           cookingTime: profile.cooking_time || '',
@@ -59,33 +58,47 @@ const Index = () => {
           servingSize: profile.serving_size || '',
           budget: profile.budget || '',
         };
-        setUserProfile(profileData);
+        setUserProfile(mappedProfile);
         setAppState('dashboard');
       } else {
-        // User exists but no quiz data, start with quiz
         setAppState('quiz');
       }
     } catch (error) {
-      console.error('Error loading profile:', error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+      toast({
+        title: "Error loading profile",
+        description: `Could not fetch your preferences: ${errorMessage}`,
+        variant: "destructive",
+      });
+      setAppState('landing');
     }
+  }, [user, toast]);
+
+  useEffect(() => {
+    if (!authLoading) {
+      checkUserProfile();
+    }
+  }, [user, authLoading, checkUserProfile]);
+
+  const handleStart = () => {
+    setAppState(user ? 'quiz' : 'auth');
   };
 
-  const handleStartQuiz = () => {
-    if (!user) {
-      setShowAuth(true);
-      return;
-    }
-    setAppState('quiz');
+  const handleAuthSuccess = () => {
+    setAppState('loading');
   };
 
   const handleQuizComplete = async (data: QuizData) => {
-    if (!user) return;
+    if (!user) {
+      toast({ title: "Authentication Error", description: "You must be signed in to save preferences.", variant: "destructive" });
+      return;
+    }
 
     try {
-      // Save quiz data to user profile
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
+      // When saving to the DB, map from camelCase back to snake_case
+      const { error } = await supabase.from('profiles').upsert(
+        {
+          user_id: user.id,
           dietary_restrictions: data.dietaryRestrictions,
           meal_types: data.mealTypes,
           cooking_time: data.cookingTime,
@@ -93,81 +106,47 @@ const Index = () => {
           skill_level: data.skillLevel,
           serving_size: data.servingSize,
           budget: data.budget,
-        })
-        .eq('user_id', user.id);
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' }
+      );
 
-      if (error) {
-        console.error('Error saving profile:', error);
-        toast({
-          title: "Error saving preferences",
-          description: "Please try again later.",
-          variant: "destructive",
-        });
-        return;
-      }
+      if (error) throw error;
 
       setUserProfile(data);
       setAppState('dashboard');
-      toast({
-        title: "Preferences saved!",
-        description: "Your meal plan is being generated.",
-      });
+      toast({ title: "Preferences Saved!", description: "Welcome to your dashboard." });
     } catch (error) {
-      console.error('Error saving profile:', error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
       toast({
-        title: "Error",
-        description: "Failed to save your preferences.",
+        title: "Error Saving Preferences",
+        description: `Failed to save your quiz data: ${errorMessage}`,
         variant: "destructive",
       });
     }
   };
 
-  const handleBackToLanding = () => {
-    setAppState('landing');
-  };
+  // --- Component Rendering Logic ---
 
-  const handleBackToQuiz = () => {
-    setAppState('quiz');
-  };
-
-  const handleAuthSuccess = () => {
-    setShowAuth(false);
-    // User profile will be loaded by useEffect
-  };
-
-  if (loading) {
+  if (appState === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
 
-  if (showAuth) {
-    return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+  switch (appState) {
+    case 'auth':
+      return <AuthPage onAuthSuccess={handleAuthSuccess} />;
+    case 'quiz':
+      return <Quiz onComplete={handleQuizComplete} onBack={() => setAppState('landing')} />;
+    case 'dashboard':
+      return userProfile ? <Dashboard userProfile={userProfile} onBackToQuiz={() => setAppState('quiz')} /> : null;
+    case 'landing':
+    default:
+      return <LandingPage onStartQuiz={handleStart} />;
   }
-
-  if (appState === 'quiz') {
-    return (
-      <Quiz 
-        onComplete={handleQuizComplete} 
-        onBack={handleBackToLanding}
-      />
-    );
-  }
-
-  if (appState === 'dashboard' && userProfile && user) {
-    return (
-      <Dashboard 
-        userProfile={userProfile}
-        onBackToQuiz={handleBackToQuiz}
-      />
-    );
-  }
-
-  return (
-    <LandingPage onStartQuiz={handleStartQuiz} />
-  );
 };
 
 export default Index;
