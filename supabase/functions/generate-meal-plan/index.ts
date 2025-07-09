@@ -55,10 +55,25 @@ serve(async (req: Request) => {
       .select('ingredient_name')
       .eq('user_id', user.id);
 
+    // Get user's meal history and preferences
+    const { data: likedRecipes } = await supabaseClient
+      .from('user_meal_history')
+      .select('recipe_id, recipes(title)')
+      .eq('user_id', user.id)
+      .eq('rating', 1);
+
+    const { data: dislikedRecipes } = await supabaseClient
+      .from('user_meal_history')
+      .select('recipe_id, recipes(title)')
+      .eq('user_id', user.id)
+      .eq('rating', -1);
+
     const dietaryRestrictions = profile.dietary_restrictions?.join(', ') || 'None';
     const cuisinePreferences = profile.cuisine_preferences?.join(', ') || 'Any';
     const pantryItemsStr = pantryItems?.map((item: { ingredient_name: string; quantity: string | null }) => `${item.ingredient_name} (${item.quantity || 'some'})`).join(', ') || 'None';
     const dislikedIngredientsStr = dislikedIngredients?.map((item: { ingredient_name: string }) => item.ingredient_name).join(', ') || 'None';
+    const likedRecipesStr = likedRecipes?.map((item: any) => item.recipes?.title).filter(Boolean).join(', ') || 'None';
+    const dislikedRecipesStr = dislikedRecipes?.map((item: any) => item.recipes?.title).filter(Boolean).join(', ') || 'None';
 
     const prompt = `
       Create a 7-day dinner meal plan based on the user's preferences.
@@ -73,6 +88,8 @@ serve(async (req: Request) => {
       - User Name: ${profile.display_name || 'Valued User'}
       - Pantry Items to Use: ${pantryItemsStr}
       - Ingredients to Avoid: ${dislikedIngredientsStr}
+      - Previously Liked Recipes: ${likedRecipesStr} (try to include similar meals)
+      - Previously Disliked Recipes: ${dislikedRecipesStr} (avoid these and similar meals)
 
       **Output Requirements:**
       - The output must be a single, minified, valid JSON object.
@@ -141,22 +158,59 @@ serve(async (req: Request) => {
     const day = today.getDay();
     const diff = today.getDate() - day + (day === 0 ? -6 : 1);
     const weekStartDate = new Date(today.setDate(diff));
-    const weekStartStr = weekStartDate.toISOString().split('T')[0];
 
-    const { error: saveError } = await supabaseClient
-      .from('meal_plans')
-      .upsert({
-        user_id: user.id,
-        week_start_date: weekStartStr,
-        plan_data: mealPlanData,
-      }, { onConflict: 'user_id,week_start_date' });
+    // Process and save each meal to the normalized database structure
+    const savedMeals = [];
+    
+    for (let i = 0; i < mealPlanData.meal_plan.length; i++) {
+      const meal = mealPlanData.meal_plan[i];
+      const mealDate = new Date(weekStartDate);
+      mealDate.setDate(weekStartDate.getDate() + i);
+      const mealDateStr = mealDate.toISOString().split('T')[0];
 
-    if (saveError) {
-        log("ERROR", "Database save error", saveError);
-        throw saveError;
+      // Process main dish
+      const mainDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.main_dish, user.id);
+      
+      // Process side dish  
+      const sideDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.side_dish, user.id);
+
+      // Save to user_meal_history for main dish
+      const { error: mainHistoryError } = await supabaseClient
+        .from('user_meal_history')
+        .insert({
+          user_id: user.id,
+          recipe_id: mainDishRecipeId,
+          meal_date: mealDateStr
+        });
+
+      if (mainHistoryError) {
+        log("ERROR", "Error saving main dish to meal history", mainHistoryError);
+        throw mainHistoryError;
+      }
+
+      // Save to user_meal_history for side dish
+      const { error: sideHistoryError } = await supabaseClient
+        .from('user_meal_history')
+        .insert({
+          user_id: user.id,
+          recipe_id: sideDishRecipeId,
+          meal_date: mealDateStr
+        });
+
+      if (sideHistoryError) {
+        log("ERROR", "Error saving side dish to meal history", sideHistoryError);
+        throw sideHistoryError;
+      }
+
+      savedMeals.push({
+        date: mealDateStr,
+        day: meal.day,
+        mainDishId: mainDishRecipeId,
+        sideDishId: sideDishRecipeId
+      });
     }
     
-    log("INFO", "Meal plan upsert command completed successfully.");
+    log("INFO", "All meals saved to normalized database structure", { savedMeals });
 
     return new Response(JSON.stringify({ success: true, mealPlan: mealPlanData }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -171,3 +225,40 @@ serve(async (req: Request) => {
     });
   }
 });
+
+// Helper function to save or get existing recipe
+async function saveOrGetRecipe(supabaseClient: any, dish: any, userId: string): Promise<string> {
+  // Check if recipe with this title already exists
+  const { data: existingRecipe, error: searchError } = await supabaseClient
+    .from('recipes')
+    .select('id')
+    .eq('title', dish.title)
+    .maybeSingle();
+
+  if (searchError) {
+    throw searchError;
+  }
+
+  if (existingRecipe) {
+    return existingRecipe.id;
+  }
+
+  // Recipe doesn't exist, create new one
+  const { data: newRecipe, error: insertError } = await supabaseClient
+    .from('recipes')
+    .insert({
+      title: dish.title,
+      ingredients: dish.ingredients,
+      recipe: dish.recipe,
+      calories: dish.calories,
+      created_by_user: userId
+    })
+    .select('id')
+    .single();
+
+  if (insertError) {
+    throw insertError;
+  }
+
+  return newRecipe.id;
+}

@@ -38,26 +38,39 @@ serve(async (req) => {
     const user = userData.user;
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    // Get user's latest meal plan
-    const { data: mealPlan, error: planError } = await supabaseClient
-      .from('meal_plans')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    // Get user's latest meal plan from user_meal_history
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    const weekStartDate = new Date(today.setDate(diff));
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekStartDate.getDate() + 6);
 
-    if (planError || !mealPlan) {
+    const { data: meals, error: mealsError } = await supabaseClient
+      .from('user_meal_history')
+      .select(`
+        meal_date,
+        recipes (
+          title,
+          ingredients,
+          recipe,
+          calories
+        )
+      `)
+      .eq('user_id', user.id)
+      .gte('meal_date', weekStartDate.toISOString().split('T')[0])
+      .lte('meal_date', weekEndDate.toISOString().split('T')[0])
+      .order('meal_date');
+
+    if (mealsError || !meals || meals.length === 0) {
       throw new Error("No meal plan found for user");
     }
 
-    logStep("Meal plan found", { planId: mealPlan.id });
+    logStep("Meal plan found", { mealCount: meals.length });
 
     // Generate email HTML
-    const meals = mealPlan.plan_data.meals;
-    const weekStart = new Date(mealPlan.week_start_date);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
+    const weekStart = weekStartDate;
+    const weekEnd = weekEndDate;
 
     const formatDate = (date: Date) => {
       return date.toLocaleDateString('en-US', { 
@@ -67,18 +80,20 @@ serve(async (req) => {
       });
     };
 
-    const mealCards = Object.entries(meals).map(([day, meal]: [string, any]) => `
-      <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
-        <h3 style="color: #4A5D23; margin: 0 0 8px 0; font-size: 18px;">${day}</h3>
-        <h4 style="margin: 0 0 8px 0; color: #333333;">${meal.name}</h4>
-        <p style="color: #666666; margin: 0 0 12px 0; font-size: 14px;">${meal.description}</p>
-        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-          <span style="background: #E87461; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">⏱️ ${meal.cookTime}</span>
-          <span style="background: #4A5D23; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">📊 ${meal.nutrition.calories} cal</span>
-          <span style="background: #666666; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">👨‍🍳 ${meal.difficulty}</span>
+    const mealCards = meals.map((meal: any) => {
+      const dayName = new Date(meal.meal_date).toLocaleDateString('en-US', { weekday: 'long' });
+      const recipe = meal.recipes;
+      
+      return `
+        <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+          <h3 style="color: #4A5D23; margin: 0 0 8px 0; font-size: 18px;">${dayName}</h3>
+          <h4 style="margin: 0 0 8px 0; color: #333333;">${recipe.title}</h4>
+          <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+            <span style="background: #E87461; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">🔥 ${recipe.calories} cal</span>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     const emailHtml = `
     <!DOCTYPE html>

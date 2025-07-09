@@ -7,33 +7,25 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface Meal {
+interface Recipe {
+  id: string;
   title: string;
   ingredients: string;
   recipe: string;
+  calories: number;
 }
 
-interface MealDay {
-  day: string;
-  main_dish: Meal;
-  side_dish: Meal;
+interface MealHistoryWithRecipe {
+  meal_date: string;
+  recipes: Recipe;
 }
 
-interface PlanData {
-  shopping_list?: string;
-  meal_plan: MealDay[];
-}
-
-interface MealPlan {
-  week_start_date: string;
-  plan_data: PlanData;
-}
-
-function generateHtml(plan: MealPlan, type: 'full' | 'shopping') {
-  const weekStart = new Date(plan.week_start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+function generateHtml(meals: MealHistoryWithRecipe[], shoppingList: string, type: 'full' | 'shopping') {
+  const firstDate = new Date(meals[0]?.meal_date || new Date());
+  const weekStart = firstDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
   
   if (type === 'shopping') {
-    const shoppingListItems = plan.plan_data.shopping_list?.split('\\n').map((item: string) => `<li>${item.replace(/-\s*/, '')}</li>`).join('') || '';
+    const shoppingListItems = shoppingList?.split('\\n').map((item: string) => `<li>${item.replace(/-\s*/, '')}</li>`).join('') || '';
     return `
       <html>
         <head><style>body { font-family: sans-serif; } h1 { color: #4A5D23; }</style></head>
@@ -45,18 +37,19 @@ function generateHtml(plan: MealPlan, type: 'full' | 'shopping') {
     `;
   }
 
-  const mealCards = plan.plan_data.meal_plan.map((mealDay: MealDay) => {
-    const mainIngredients = mealDay.main_dish.ingredients?.split('\\n').map((i: string) => `<li>${i.replace(/-\s*/, '')}</li>`).join('') || '';
-    const mainRecipe = mealDay.main_dish.recipe?.split('\\n').map((s: string) => `<li>${s.replace(/\d+\.\s*/, '')}</li>`).join('') || '';
+  const mealCards = meals.map((meal: MealHistoryWithRecipe) => {
+    const dayName = new Date(meal.meal_date).toLocaleDateString('en-US', { weekday: 'long' });
+    const ingredients = meal.recipes.ingredients?.split('\\n').map((i: string) => `<li>${i.replace(/-\s*/, '')}</li>`).join('') || '';
+    const recipe = meal.recipes.recipe?.split('\\n').map((s: string) => `<li>${s.replace(/\d+\.\s*/, '')}</li>`).join('') || '';
 
     return `
       <div style="margin-bottom: 2rem; page-break-inside: avoid;">
-        <h2 style="color: #4A5D23; border-bottom: 1px solid #ddd; padding-bottom: 5px;">${mealDay.day}: ${mealDay.main_dish.title}</h2>
-        <p><em>with ${mealDay.side_dish.title}</em></p>
+        <h2 style="color: #4A5D23; border-bottom: 1px solid #ddd; padding-bottom: 5px;">${dayName}: ${meal.recipes.title}</h2>
+        <p><strong>Calories:</strong> ${meal.recipes.calories}</p>
         <h3 style="margin-top: 1rem;">Ingredients</h3>
-        <ul>${mainIngredients}</ul>
+        <ul>${ingredients}</ul>
         <h3 style="margin-top: 1rem;">Recipe</h3>
-        <ol>${mainRecipe}</ol>
+        <ol>${recipe}</ol>
       </div>
     `;
   }).join('');
@@ -94,20 +87,44 @@ serve(async (req: Request) => {
     if (type !== 'full' && type !== 'shopping') {
       throw new Error("Invalid PDF type specified.");
     }
-    
-    const { data: mealPlan, error: planError } = await supabaseClient
-      .from('meal_plans')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
 
-    if (planError || !mealPlan) {
-      throw new Error("No meal plan found for this user.");
+    // Get current week's meals from user_meal_history
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    const weekStartDate = new Date(today.setDate(diff));
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekStartDate.getDate() + 6);
+
+    const { data: meals, error: mealsError } = await supabaseClient
+      .from('user_meal_history')
+      .select(`
+        meal_date,
+        recipes (
+          id,
+          title,
+          ingredients,
+          recipe,
+          calories
+        )
+      `)
+      .eq('user_id', user.id)
+      .gte('meal_date', weekStartDate.toISOString().split('T')[0])
+      .lte('meal_date', weekEndDate.toISOString().split('T')[0])
+      .order('meal_date');
+
+    if (mealsError) {
+      throw mealsError;
     }
+
+    if (!meals || meals.length === 0) {
+      throw new Error("No meals found for this week. Please generate a meal plan first.");
+    }
+
+    // Generate shopping list from all ingredients
+    const allIngredients = meals.map((meal: any) => meal.recipes.ingredients).join('\\n');
     
-    const htmlContent = generateHtml(mealPlan as MealPlan, type);
+    const htmlContent = generateHtml(meals as MealHistoryWithRecipe[], allIngredients, type);
 
     const browser = await puppeteer.launch({
       args: ['--no-sandbox', '--disable-setuid-sandbox'],

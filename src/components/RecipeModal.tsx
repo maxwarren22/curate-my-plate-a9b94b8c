@@ -3,8 +3,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Check } from "lucide-react";
-import { MealDay } from "@/types"; // Import the shared type
+import { Check, ThumbsUp, ThumbsDown } from "lucide-react";
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+
+interface Recipe {
+  id: string;
+  title: string;
+  ingredients: string;
+  recipe: string;
+  calories: number;
+}
+
+interface MealDay {
+  day: string;
+  main_dish: Recipe;
+  side_dish: Recipe;
+  total_time_to_cook: string;
+  cooking_tips?: string;
+}
 
 interface RecipeModalProps {
   mealDay: MealDay;
@@ -24,6 +42,37 @@ const formatRecipeSteps = (steps: string | undefined): string[] => {
 
 
 export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
+  const [mainDishRating, setMainDishRating] = useState<number | null>(null);
+  const [sideDishRating, setSideDishRating] = useState<number | null>(null);
+  const { toast } = useToast();
+
+  const handleRating = async (recipeId: string, rating: number, dishType: 'main' | 'side') => {
+    try {
+      const { error } = await supabase.functions.invoke('rate-meal', {
+        body: { recipe_id: recipeId, rating }
+      });
+
+      if (error) throw error;
+
+      if (dishType === 'main') {
+        setMainDishRating(rating);
+      } else {
+        setSideDishRating(rating);
+      }
+
+      toast({
+        title: rating === 1 ? "Recipe Liked!" : "Recipe Disliked!",
+        description: "Your preference has been saved.",
+      });
+    } catch (error) {
+      console.error('Error rating recipe:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save your preference. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[90vh]">
@@ -42,7 +91,6 @@ export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
 
           <div className="flex flex-wrap gap-2 mb-6">
             <Badge variant="secondary">⏱️ {mealDay.total_time_to_cook}</Badge>
-            <Badge variant="outline">🍽️ Serves {mealDay.main_dish.servings}</Badge>
             <Badge variant="secondary">🔥 {mealDay.main_dish.calories + mealDay.side_dish.calories} total cal</Badge>
           </div>
           
@@ -115,8 +163,40 @@ export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
 
           <div className="flex justify-between pt-6 mt-6 border-t">
             <div className="flex gap-3">
-              <Button variant="outline" size="sm">👍 Like</Button>
-              <Button variant="outline" size="sm">👎 Dislike</Button>
+              <Button 
+                variant={mainDishRating === 1 ? "default" : "outline"} 
+                size="sm"
+                onClick={() => handleRating(mealDay.main_dish.id, 1, 'main')}
+              >
+                <ThumbsUp className="w-4 h-4 mr-1" />
+                Like Main Dish
+              </Button>
+              <Button 
+                variant={mainDishRating === -1 ? "destructive" : "outline"} 
+                size="sm"
+                onClick={() => handleRating(mealDay.main_dish.id, -1, 'main')}
+              >
+                <ThumbsDown className="w-4 h-4 mr-1" />
+                Dislike Main Dish
+              </Button>
+            </div>
+            <div className="flex gap-3">
+              <Button 
+                variant={sideDishRating === 1 ? "default" : "outline"} 
+                size="sm"
+                onClick={() => handleRating(mealDay.side_dish.id, 1, 'side')}
+              >
+                <ThumbsUp className="w-4 h-4 mr-1" />
+                Like Side Dish
+              </Button>
+              <Button 
+                variant={sideDishRating === -1 ? "destructive" : "outline"} 
+                size="sm"
+                onClick={() => handleRating(mealDay.side_dish.id, -1, 'side')}
+              >
+                <ThumbsDown className="w-4 h-4 mr-1" />
+                Dislike Side Dish
+              </Button>
             </div>
           </div>
         </ScrollArea>

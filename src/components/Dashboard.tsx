@@ -227,7 +227,7 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
                               <CardContent>
                                 <div className="flex gap-2 mt-2">
                                     <Badge variant="secondary">{mealDay.total_time_to_cook}</Badge>
-                                    <Badge variant="outline">Serves {mealDay.main_dish.servings}</Badge>
+                                    <Badge variant="outline">🔥 {mealDay.main_dish.calories + mealDay.side_dish.calories} cal</Badge>
                                 </div>
                               </CardContent>
                             </div>
