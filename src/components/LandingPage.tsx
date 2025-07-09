@@ -1,29 +1,23 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
-
 interface LandingPageProps {
   onStartQuiz: () => void;
 }
-
-export const LandingPage = ({ onStartQuiz }: LandingPageProps) => {
-  const { user } = useAuth();
-
-  return (
-    <div className="min-h-screen bg-background">
+export const LandingPage = ({
+  onStartQuiz
+}: LandingPageProps) => {
+  const {
+    user
+  } = useAuth();
+  return <div className="min-h-screen bg-background">
       {/* Navigation */}
       <nav className="absolute top-0 left-0 right-0 z-20 p-6">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-white">MealCraft</h1>
-          {!user && (
-            <Button 
-              variant="outline" 
-              className="bg-white/10 border-white/30 text-white hover:bg-white/20"
-              onClick={onStartQuiz}
-            >
+          <h1 className="text-2xl font-bold text-white">Curate My Plate</h1>
+          {!user && <Button variant="outline" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={onStartQuiz}>
               Sign In
-            </Button>
-          )}
+            </Button>}
         </div>
       </nav>
 
@@ -45,20 +39,11 @@ export const LandingPage = ({ onStartQuiz }: LandingPageProps) => {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button 
-              onClick={onStartQuiz}
-              variant="hero" 
-              size="lg"
-              className="text-lg px-8 py-4 h-auto"
-            >
+            <Button onClick={onStartQuiz} variant="hero" size="lg" className="text-lg px-8 py-4 h-auto">
               Start Your Food Journey
             </Button>
             
-            <Button 
-              variant="outline" 
-              size="lg"
-              className="text-lg px-8 py-4 h-auto bg-white/10 border-white/30 text-white hover:bg-white/20"
-            >
+            <Button variant="outline" size="lg" className="text-lg px-8 py-4 h-auto bg-white/10 border-white/30 text-white hover:bg-white/20">
               Learn More
             </Button>
           </div>
@@ -121,16 +106,10 @@ export const LandingPage = ({ onStartQuiz }: LandingPageProps) => {
           <p className="text-xl mb-8 text-white/90">
             Join thousands of happy users who've discovered the joy of stress-free meal planning.
           </p>
-          <Button 
-            onClick={onStartQuiz}
-            variant="hero" 
-            size="lg"
-            className="text-lg px-8 py-4 h-auto bg-white text-primary hover:bg-white/90"
-          >
+          <Button onClick={onStartQuiz} variant="hero" size="lg" className="text-lg px-8 py-4 h-auto bg-white text-primary hover:bg-white/90">
             Get Started Now
           </Button>
         </div>
       </section>
-    </div>
-  );
+    </div>;
 };
