@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
-import heroImage from "@/assets/hero-food.jpg";
 
 interface LandingPageProps {
   onStartQuiz: () => void;
@@ -30,13 +29,7 @@ export const LandingPage = ({ onStartQuiz }: LandingPageProps) => {
 
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center bg-gradient-hero overflow-hidden">
-        <div className="absolute inset-0 opacity-20">
-          <img 
-            src={heroImage} 
-            alt="Fresh ingredients" 
-            className="w-full h-full object-cover"
-          />
-        </div>
+        <div className="absolute inset-0 opacity-30 bg-gradient-to-br from-primary/20 via-primary/10 to-secondary/20"></div>
         
         <div className="relative z-10 max-w-4xl mx-auto px-6 text-center text-white">
           <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
