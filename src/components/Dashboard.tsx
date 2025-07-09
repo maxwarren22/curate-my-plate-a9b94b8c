@@ -30,22 +30,11 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
   const loadData = useCallback(async () => {
     if (!user) return;
     try {
-      const { data: mealPlanData, error } = await supabase
-        .from('meal_plans')
-        .select('plan_data')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-
-      if (mealPlanData?.plan_data) {
-        const { meal_plan, shopping_list, pantry_items } = mealPlanData.plan_data as any;
-        setWeeklyPlan(Array.isArray(meal_plan) ? meal_plan : []);
-        setShoppingList(typeof shopping_list === 'string' ? shopping_list : "");
-        setPantryItems(typeof pantry_items === 'string' ? pantry_items : "");
-      }
+      // For now, we'll initialize with empty data since we're transitioning to the new schema
+      // The meal plan generation will populate the recipes table
+      setWeeklyPlan([]);
+      setShoppingList("");
+      setPantryItems("");
     } catch (error) {
       console.error('Error loading meal plan:', error);
     }
