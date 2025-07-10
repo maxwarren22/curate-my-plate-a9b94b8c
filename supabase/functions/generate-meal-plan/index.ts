@@ -1,14 +1,49 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface Dish {
+  title: string;
+  ingredients: string;
+  recipe: string;
+  calories: number;
+  servings?: number;
+}
+
 const log = (level: "INFO" | "ERROR", step: string, details: unknown = {}) => {
   console.log(`[${level}] [generate-meal-plan] ${step}`, JSON.stringify(details));
 };
+
+async function saveOrGetRecipe(supabaseClient: SupabaseClient, dish: Dish, userId: string): Promise<string> {
+  const { data: existingRecipe, error: searchError } = await supabaseClient
+    .from('recipes')
+    .select('id')
+    .eq('title', dish.title)
+    .maybeSingle();
+
+  if (searchError) throw searchError;
+  if (existingRecipe) return existingRecipe.id;
+
+  const { data: newRecipe, error: insertError } = await supabaseClient
+    .from('recipes')
+    .insert({
+      title: dish.title,
+      ingredients: dish.ingredients,
+      recipe: dish.recipe,
+      calories: dish.calories,
+      created_by_user: userId,
+      servings: dish.servings,
+    })
+    .select('id')
+    .single();
+
+  if (insertError) throw insertError;
+  return newRecipe.id;
+}
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -36,45 +71,12 @@ serve(async (req: Request) => {
     const user = authData.user;
     log("INFO", "User authenticated", { userId: user.id });
 
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
+    const { data: profile, error: profileError } = await supabaseClient.from('profiles').select('*').eq('user_id', user.id).single();
     if (profileError) throw profileError;
-    log("INFO", "Profile loaded successfully.");
-
-    const { data: pantryItems } = await supabaseClient
-      .from('pantry_items')
-      .select('ingredient_name, quantity')
-      .eq('user_id', user.id);
-
-    const { data: dislikedIngredients } = await supabaseClient
-      .from('disliked_ingredients')
-      .select('ingredient_name')
-      .eq('user_id', user.id);
-
-    // Get user's meal history and preferences
-    const { data: likedRecipes } = await supabaseClient
-      .from('user_meal_history')
-      .select('recipe_id, recipes(title)')
-      .eq('user_id', user.id)
-      .eq('rating', 1);
-
-    const { data: dislikedRecipes } = await supabaseClient
-      .from('user_meal_history')
-      .select('recipe_id, recipes(title)')
-      .eq('user_id', user.id)
-      .eq('rating', -1);
 
     const dietaryRestrictions = profile.dietary_restrictions?.join(', ') || 'None';
     const cuisinePreferences = profile.cuisine_preferences?.join(', ') || 'Any';
-    const pantryItemsStr = pantryItems?.map((item: { ingredient_name: string; quantity: string | null }) => `${item.ingredient_name} (${item.quantity || 'some'})`).join(', ') || 'None';
-    const dislikedIngredientsStr = dislikedIngredients?.map((item: { ingredient_name: string }) => item.ingredient_name).join(', ') || 'None';
-    const likedRecipesStr = likedRecipes?.map((item: any) => item.recipes?.title).filter(Boolean).join(', ') || 'None';
-    const dislikedRecipesStr = dislikedRecipes?.map((item: any) => item.recipes?.title).filter(Boolean).join(', ') || 'None';
-
+    
     const prompt = `
       Create a 7-day dinner meal plan based on the user's preferences.
 
@@ -84,12 +86,6 @@ serve(async (req: Request) => {
       - Available Cooking Time: ${profile.cooking_time || 'Any'}
       - Skill Level: ${profile.skill_level || 'Beginner'}
       - Servings per Meal: ${profile.serving_size || '2'}
-      - Weekly Budget: ${profile.budget || 'Moderate'}
-      - User Name: ${profile.display_name || 'Valued User'}
-      - Pantry Items to Use: ${pantryItemsStr}
-      - Ingredients to Avoid: ${dislikedIngredientsStr}
-      - Previously Liked Recipes: ${likedRecipesStr} (try to include similar meals)
-      - Previously Disliked Recipes: ${dislikedRecipesStr} (avoid these and similar meals)
 
       **Output Requirements:**
       - The output must be a single, minified, valid JSON object.
@@ -97,9 +93,6 @@ serve(async (req: Request) => {
 
       **JSON Structure Example:**
       {
-        "name": "Valued User",
-        "budget": "Est. $100-$120",
-        "shopping_list": "- 1 lb chicken breast\\n- 1 bunch asparagus...",
         "meal_plan": [
           {
             "day": "Monday",
@@ -124,9 +117,7 @@ serve(async (req: Request) => {
     `;
 
     const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openaiApiKey) throw new Error("OPENAI_API_KEY not configured in Supabase secrets.");
-
-    log("INFO", "Calling OpenAI API with JSON mode");
+    if (!openaiApiKey) throw new Error("OPENAI_API_KEY not configured.");
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -134,83 +125,62 @@ serve(async (req: Request) => {
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You are a professional chef. Generate a valid JSON object based on the user's request, strictly following the requested structure and formats." },
+          { role: "system", content: "You are an expert chef who provides meal plans in a valid JSON format." },
           { role: "user", content: prompt }
         ],
-        temperature: 0.7,
-        max_tokens: 4000,
         response_format: { type: "json_object" }
       }),
     });
 
-    if (!openaiResponse.ok) {
-      const errorBody = await openaiResponse.text();
-      log("ERROR", "OpenAI API request failed", { status: openaiResponse.status, body: errorBody });
-      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
-    }
-
+    if (!openaiResponse.ok) throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+    
     const openaiData = await openaiResponse.json();
     const mealPlanData = JSON.parse(openaiData.choices[0].message.content);
 
-    log("INFO", "Successfully generated and parsed meal plan.");
+    log("INFO", "Successfully parsed meal plan. Starting database inserts.");
 
     const today = new Date();
     const day = today.getDay();
     const diff = today.getDate() - day + (day === 0 ? -6 : 1);
     const weekStartDate = new Date(today.setDate(diff));
 
-    // Process and save each meal to the normalized database structure
-    const savedMeals = [];
-    
-    for (let i = 0; i < mealPlanData.meal_plan.length; i++) {
-      const meal = mealPlanData.meal_plan[i];
-      const mealDate = new Date(weekStartDate);
-      mealDate.setDate(weekStartDate.getDate() + i);
-      const mealDateStr = mealDate.toISOString().split('T')[0];
+    for (const [index, meal] of mealPlanData.meal_plan.entries()) {
+        const mealDate = new Date(weekStartDate);
+        mealDate.setDate(weekStartDate.getDate() + index);
+        const mealDateStr = mealDate.toISOString().split('T')[0];
 
-      // Process main dish
-      const mainDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.main_dish, user.id);
-      
-      // Process side dish  
-      const sideDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.side_dish, user.id);
+        log("INFO", `Processing meal for ${mealDateStr}`);
 
-      // Save to user_meal_history for main dish
-      const { error: mainHistoryError } = await supabaseClient
-        .from('user_meal_history')
-        .insert({
-          user_id: user.id,
-          recipe_id: mainDishRecipeId,
-          meal_date: mealDateStr
-        });
+        const mainDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.main_dish, user.id);
+        log("INFO", `Saved main dish recipe`, { id: mainDishRecipeId });
 
-      if (mainHistoryError) {
-        log("ERROR", "Error saving main dish to meal history", mainHistoryError);
-        throw mainHistoryError;
-      }
+        const sideDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.side_dish, user.id);
+        log("INFO", `Saved side dish recipe`, { id: sideDishRecipeId });
 
-      // Save to user_meal_history for side dish
-      const { error: sideHistoryError } = await supabaseClient
-        .from('user_meal_history')
-        .insert({
-          user_id: user.id,
-          recipe_id: sideDishRecipeId,
-          meal_date: mealDateStr
-        });
+        const mealHistoryRecord = {
+            user_id: user.id,
+            meal_date: mealDateStr,
+            main_dish_recipe_id: mainDishRecipeId,
+            side_dish_recipe_id: sideDishRecipeId,
+            total_time_to_cook: meal.total_time_to_cook,
+            cooking_tips: meal.cooking_tips,
+        };
 
-      if (sideHistoryError) {
-        log("ERROR", "Error saving side dish to meal history", sideHistoryError);
-        throw sideHistoryError;
-      }
+        log("INFO", "Attempting to insert into user_meal_history", { record: mealHistoryRecord });
 
-      savedMeals.push({
-        date: mealDateStr,
-        day: meal.day,
-        mainDishId: mainDishRecipeId,
-        sideDishId: sideDishRecipeId
-      });
+        const { error: historyError } = await supabaseClient
+          .from('user_meal_history')
+          .upsert(mealHistoryRecord, { onConflict: 'user_id,meal_date' });
+
+        if (historyError) {
+          log("ERROR", "Error inserting into user_meal_history", { error: historyError, record: mealHistoryRecord });
+          throw historyError;
+        }
+
+        log("INFO", `Successfully inserted meal history for ${mealDateStr}`);
     }
     
-    log("INFO", "All meals saved to normalized database structure", { savedMeals });
+    log("INFO", "All meals saved to database structure");
 
     return new Response(JSON.stringify({ success: true, mealPlan: mealPlanData }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -218,47 +188,11 @@ serve(async (req: Request) => {
     });
 
   } catch (error) {
-    log("ERROR", "Top-level function error", error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "An unknown server error occurred." }), {
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+    log("ERROR", "Top-level function error", { error: errorMessage });
+    return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
     });
   }
 });
-
-// Helper function to save or get existing recipe
-async function saveOrGetRecipe(supabaseClient: any, dish: any, userId: string): Promise<string> {
-  // Check if recipe with this title already exists
-  const { data: existingRecipe, error: searchError } = await supabaseClient
-    .from('recipes')
-    .select('id')
-    .eq('title', dish.title)
-    .maybeSingle();
-
-  if (searchError) {
-    throw searchError;
-  }
-
-  if (existingRecipe) {
-    return existingRecipe.id;
-  }
-
-  // Recipe doesn't exist, create new one
-  const { data: newRecipe, error: insertError } = await supabaseClient
-    .from('recipes')
-    .insert({
-      title: dish.title,
-      ingredients: dish.ingredients,
-      recipe: dish.recipe,
-      calories: dish.calories,
-      created_by_user: userId
-    })
-    .select('id')
-    .single();
-
-  if (insertError) {
-    throw insertError;
-  }
-
-  return newRecipe.id;
-}

@@ -44,13 +44,11 @@ serve(async (req: Request) => {
 
     log("INFO", "Rating meal", { recipeId: recipe_id, rating });
 
-    // Find the user's meal history entry for this recipe
     const { data: mealHistory, error: findError } = await supabaseClient
       .from('user_meal_history')
       .select('id')
       .eq('user_id', user.id)
-      .eq('recipe_id', recipe_id)
-      .order('created_at', { ascending: false })
+      .or(`main_dish_recipe_id.eq.${recipe_id},side_dish_recipe_id.eq.${recipe_id}`)
       .limit(1)
       .maybeSingle();
 
@@ -60,10 +58,16 @@ serve(async (req: Request) => {
     }
 
     if (!mealHistory) {
-      throw new Error("No meal history found for this recipe and user");
+      log("INFO", "No meal history found for this recipe. Rating not applied to a specific meal instance.");
+      return new Response(JSON.stringify({ 
+        success: true, 
+        message: "Rating noted for future recommendations." 
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
     }
 
-    // Update the rating for this meal history entry
     const { error: updateError } = await supabaseClient
       .from('user_meal_history')
       .update({ rating })
@@ -85,10 +89,9 @@ serve(async (req: Request) => {
     });
 
   } catch (error) {
-    log("ERROR", "Top-level function error", error);
-    return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : "An unknown server error occurred." 
-    }), {
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+    log("ERROR", "Top-level function error", { error: errorMessage });
+    return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
     });

@@ -51,6 +51,7 @@
     "npm:lovable-tagger@^1.1.7": "1.1.8_vite@5.4.19__@types+node@22.16.2_@types+node@22.16.2",
     "npm:lucide-react@0.462": "0.462.0_react@18.3.1",
     "npm:next-themes@0.3": "0.3.0_react@18.3.1_react-dom@18.3.1__react@18.3.1",
+    "npm:parse-ingredient@^1.3.0": "1.3.0",
     "npm:postcss@^8.4.47": "8.5.6",
     "npm:react-day-picker@^8.10.1": "8.10.1_date-fns@3.6.0_react@18.3.1",
     "npm:react-dom@^18.3.1": "18.3.1_react@18.3.1",
@@ -2833,6 +2834,9 @@
     "normalize-range@0.1.2": {
       "integrity": "sha512-bdok/XvKII3nUpklnV6P2hxtMNrCboOjAcyBuQnWEhO665FwrSNRxU+AqpsyvO6LgGYPspN+lu5CLtw4jPRKNA=="
     },
+    "numeric-quantity@2.1.0": {
+      "integrity": "sha512-oDkQ8nFuNVA+unEg1jd6dAS+O7eLXWWzsa4ViI0S0yFi6654GK0s74o8bF8uLRQdWIz/qFF1GABNFPfwAGQUsg=="
+    },
     "object-assign@4.1.1": {
       "integrity": "sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg=="
     },
@@ -2869,6 +2873,12 @@
       "integrity": "sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==",
       "dependencies": [
         "callsites"
+      ]
+    },
+    "parse-ingredient@1.3.0": {
+      "integrity": "sha512-oertKruE9gEoOEmYAYAPFlmwG3qWpKPqa5ORQgtAcWQs78YQ4zojbIdRtMSeVWQWcxhd8R0Px6C7Lqp8rTs4eA==",
+      "dependencies": [
+        "numeric-quantity"
       ]
     },
     "parseley@0.12.1": {
@@ -3557,6 +3567,7 @@
     "https://esm.sh/isarray@~1.0.0?target=denonext": "https://esm.sh/isarray@1.0.0?target=denonext",
     "https://esm.sh/lie@~3.3.0?target=denonext": "https://esm.sh/lie@3.3.0?target=denonext",
     "https://esm.sh/node-gyp-build@^4.3.0?target=denonext": "https://esm.sh/node-gyp-build@4.8.4?target=denonext",
+    "https://esm.sh/numeric-quantity@^1.0.4?target=denonext": "https://esm.sh/numeric-quantity@1.0.4?target=denonext",
     "https://esm.sh/pako@~1.0.2?target=denonext": "https://esm.sh/pako@1.0.11?target=denonext",
     "https://esm.sh/process-nextick-args@~2.0.0?target=denonext": "https://esm.sh/process-nextick-args@2.0.1?target=denonext",
     "https://esm.sh/readable-stream@~2.3.6?target=denonext": "https://esm.sh/readable-stream@2.3.8?target=denonext",
@@ -3724,8 +3735,12 @@
     "https://esm.sh/lie@3.3.0?target=denonext": "74a2c724bd2fef30c46c612632dfd2ee37394f1a4540eb112e0df2ef98df0434",
     "https://esm.sh/node-gyp-build@4.8.4/denonext/node-gyp-build.mjs": "9a86f2d044fc77bd60aaa3d697c2ba1b818da5fb1b9aaeedec59a40b8e908803",
     "https://esm.sh/node-gyp-build@4.8.4?target=denonext": "261a6cedf1fdbf159798141ba1e2311ac1510682c5c8b55dacc8cf5fdee4aa06",
+    "https://esm.sh/numeric-quantity@1.0.4/denonext/numeric-quantity.mjs": "b0a7e5fac5999137d8a4e99c3116923f81706e8a40d2008c6d8a4d83543c7af6",
+    "https://esm.sh/numeric-quantity@1.0.4?target=denonext": "bcc41fde89f3d31e93f20ad3a064ea7cc6f521c05050822aed4a57379f6c85a6",
     "https://esm.sh/pako@1.0.11/denonext/pako.mjs": "c74e4cf6d33272fd034f6b17390a1bf1122d8bb28f861b6e82d9a1536b3f3105",
     "https://esm.sh/pako@1.0.11?target=denonext": "bc43f66ed245d58d468bf9867b3e9080c5b0590b4c14038ea308954490e0b2ea",
+    "https://esm.sh/parse-ingredient@0.6.0": "25e5bed5282f57770d28bf094ceed8e5855db4d20847b1f831e15dd3377dfc71",
+    "https://esm.sh/parse-ingredient@0.6.0/denonext/parse-ingredient.mjs": "d73b990f50d7527323d5eee0a050e5f0a0fb20b6edf7aa919c74243605b03467",
     "https://esm.sh/process-nextick-args@2.0.1/denonext/process-nextick-args.mjs": "adffdd507c6571957aaab9d3f0a2aa54febdda1b4d546a57967fd2299505339e",
     "https://esm.sh/process-nextick-args@2.0.1?target=denonext": "b80260031d83086964facc0efc6e2cc8fd878d9ce14dfcf6999e508a4d8d13d0",
     "https://esm.sh/readable-stream@2.3.8/denonext/readable-stream.mjs": "738c1c2f90f84663b7bf1a4151d280079e6eab3ae3b2a5b5c759af02364b5ea4",
@@ -3802,6 +3817,7 @@
         "npm:lovable-tagger@^1.1.7",
         "npm:lucide-react@0.462",
         "npm:next-themes@0.3",
+        "npm:parse-ingredient@^1.3.0",
         "npm:postcss@^8.4.47",
         "npm:react-day-picker@^8.10.1",
         "npm:react-dom@^18.3.1",

@@ -142,6 +142,7 @@ const Index = () => {
     case 'quiz':
       return <Quiz onComplete={handleQuizComplete} onBack={() => setAppState('landing')} />;
     case 'dashboard':
+      // --- FIX: Removed the incorrect props from this component call ---
       return userProfile ? <Dashboard userProfile={userProfile} onBackToQuiz={() => setAppState('quiz')} /> : null;
     case 'landing':
     default:
