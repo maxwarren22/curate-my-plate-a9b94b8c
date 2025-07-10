@@ -9,8 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { RecipeModal } from "./RecipeModal";
 import { PantryManager } from "./PantryManager";
 import { Loader2, Download, CreditCard, RefreshCw, Star, CheckCircle } from "lucide-react";
-import { MealDay } from "@/types";
-import { parseIngredient } from "parse-ingredient";
+import { MealDay, Recipe } from "@/types";
+import { generateShoppingList } from "@/lib/ingredient-utils";
 
 interface DashboardProps {
   userProfile: any;
@@ -63,40 +63,30 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
 
       setWeeklyPlan(assembledPlan);
 
-      const allIngredientStrings = mealHistory.flatMap((meal: any) => [
-        ...(meal.main_dish.ingredients?.split('\n') || []),
-        ...(meal.side_dish.ingredients?.split('\n') || [])
-      ]).filter(s => s && s.trim() !== '');
+      const { data: pantryItems } = await supabase
+        .from('pantry_items')
+        .select('ingredient_name')
+        .eq('user_id', user.id);
 
-      const parsedIngredients = allIngredientStrings.flatMap(ing => parseIngredient(ing));
-      const aggregated = new Map();
-
-      parsedIngredients.forEach(p => {
-        if (!p.description) return;
-        const key = `${p.description.toLowerCase()}|${p.unitOfMeasure?.toLowerCase() || ''}`;
-        const existing = aggregated.get(key);
-
-        if (existing) {
-          existing.quantity += p.quantity || 0;
-        } else {
-          aggregated.set(key, { ...p });
-        }
+      // --- FIX: Ensure the recipes array conforms to the Recipe[] type ---
+      const recipes: Recipe[] = assembledPlan.flatMap(meal => {
+        const dishes: Recipe[] = [];
+        if (meal.main_dish && typeof meal.main_dish === 'object' && 'id' in meal.main_dish) dishes.push(meal.main_dish as Recipe);
+        if (meal.side_dish && typeof meal.side_dish === 'object' && 'id' in meal.side_dish) dishes.push(meal.side_dish as Recipe);
+        return dishes;
       });
-
-      const aggregatedShoppingList = Array.from(aggregated.values())
-        .map(p => `${p.quantity || ''} ${p.unitOfMeasure || ''} ${p.description}`.trim().replace(/\s+/g, ' '))
-        .join('\n');
       
+      const aggregatedShoppingList = generateShoppingList(recipes, pantryItems || []);
       setShoppingList(aggregatedShoppingList);
 
     } catch (error) {
-      console.error('Error loading meal plan:', error);
-      toast({ title: "Error", description: "Could not load your meal plan.", variant: "destructive" });
+      console.error('Error loading data:', error);
+      toast({ title: "Error", description: "Could not load your data.", variant: "destructive" });
     } finally {
       setLoading(p => ({ ...p, plan: false }));
     }
   }, [user, toast]);
-  
+
   const checkSubscription = useCallback(async () => {
     if (!user) return;
     try {
@@ -126,8 +116,7 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
     if (!user) return;
     setGeneratingPlan(true);
     try {
-      const { error } = await supabase.functions.invoke('generate-meal-plan');
-      if (error) throw error;
+      await supabase.functions.invoke('generate-meal-plan');
       await loadData();
       toast({ title: "Success!", description: "Your new meal plan is ready." });
     } catch (error) {
@@ -136,52 +125,36 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
       setGeneratingPlan(false);
     }
   };
-  
+
   const downloadPDF = async (type: 'full' | 'shopping') => {
     setLoading(prev => ({ ...prev, pdf: true }));
     try {
-        const { data, error } = await supabase.functions.invoke('generate-pdf', {
-            body: { type },
-        });
-
-        if (error) throw error;
-        if (!(data instanceof Blob)) {
-            throw new Error("Invalid response from server. Expected a PDF file.");
-        }
-
-        const url = window.URL.createObjectURL(data);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${type}-plan-${new Date().toISOString().split('T')[0]}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        
-        toast({ title: "Success!", description: "Your PDF is downloading." });
-        
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
+      const { data, error } = await supabase.functions.invoke('generate-pdf', { body: { type } });
+      if (error) throw error;
+      if (!(data instanceof Blob)) throw new Error("Invalid response from server.");
+      const url = window.URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${type}-plan.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast({ title: "Success!", description: "Your PDF is downloading." });
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        toast({
-            title: "PDF Generation Failed",
-            description: errorMessage,
-            variant: "destructive",
-        });
+      const errorMessage = error instanceof Error ? error.message : "PDF generation failed.";
+      toast({ title: "Error", description: errorMessage, variant: "destructive" });
     } finally {
-        setLoading(prev => ({ ...prev, pdf: false }));
+      setLoading(prev => ({ ...prev, pdf: false }));
     }
   };
-  
+
   const createCheckout = async (planType: 'weekly' | 'monthly') => {
-    if (!user) return;
     setLoading(prev => ({ ...prev, checkout: true }));
     try {
       const { data, error } = await supabase.functions.invoke('create-checkout', { body: { planType } });
       if (error) throw error;
-      if (data.url) {
-        window.location.href = data.url;
-      }
+      if (data.url) window.location.href = data.url;
     } catch (error) {
       toast({ title: "Error", description: "Could not initiate subscription.", variant: "destructive" });
     } finally {
@@ -200,7 +173,6 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
           </div>
         </div>
       </div>
-
       <div className="max-w-7xl mx-auto px-6 py-8">
         <Tabs defaultValue="meals" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
@@ -209,21 +181,14 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
             <TabsTrigger value="pantry">Pantry & Prefs</TabsTrigger>
             <TabsTrigger value="subscription">Subscription</TabsTrigger>
           </TabsList>
-
           <TabsContent value="meals" className="space-y-6 mt-6">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-foreground">This Week's Meal Plan</h2>
               <div className="flex gap-3">
-                <Button onClick={() => downloadPDF('full')} disabled={loading.pdf || weeklyPlan.length === 0} variant="outline">
-                  <Download className="w-4 h-4 mr-2" /> Download Plan
-                </Button>
-                <Button onClick={generateMealPlan} disabled={generatingPlan || loading.plan} variant="default">
-                  <RefreshCw className={`w-4 h-4 mr-2 ${generatingPlan || loading.plan ? 'animate-spin' : ''}`} />
-                  {generatingPlan || loading.plan ? "Loading..." : "New Plan"}
-                </Button>
+                <Button onClick={() => downloadPDF('full')} disabled={loading.pdf || weeklyPlan.length === 0} variant="outline"><Download className="w-4 h-4 mr-2" /> Download Plan</Button>
+                <Button onClick={generateMealPlan} disabled={generatingPlan || loading.plan} variant="default"><RefreshCw className={`w-4 h-4 mr-2 ${generatingPlan || loading.plan ? 'animate-spin' : ''}`} />{generatingPlan || loading.plan ? "Loading..." : "New Plan"}</Button>
               </div>
             </div>
-
             {loading.plan ? (
                 <div className="text-center p-8"><Loader2 className="w-8 h-8 mx-auto animate-spin mb-4" /><p className="text-muted-foreground">Loading your meal plan...</p></div>
             ) : (
@@ -258,12 +223,11 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
               </div>
             )}
           </TabsContent>
-          
           <TabsContent value="shopping" className="space-y-6 mt-6">
              <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div><CardTitle>Shopping List</CardTitle><CardDescription>Items to buy for this week's meals.</CardDescription></div>
-                    <Button onClick={() => downloadPDF('shopping')} disabled={loading.pdf} variant="outline"><Download className="w-4 h-4 mr-2" /> Print List</Button>
+                    <Button onClick={() => downloadPDF('shopping')} disabled={loading.pdf || weeklyPlan.length === 0} variant="outline"><Download className="w-4 h-4 mr-2" /> Print List</Button>
                 </CardHeader>
                 <CardContent>
                     {shoppingList.length > 0 ? (
@@ -276,9 +240,7 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
                 </CardContent>
              </Card>
           </TabsContent>
-
           <TabsContent value="pantry" className="mt-6"><PantryManager /></TabsContent>
-          
           <TabsContent value="subscription" className="mt-6">
              <Card>
                 <CardHeader><CardTitle>Subscription Plan</CardTitle><CardDescription>Manage your subscription and billing details.</CardDescription></CardHeader>
@@ -293,7 +255,7 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
                         </div>
                     </Card>
                     <div className="text-center">
-                        <p className="text-muted-foreground mb-4">Upgrade to unlock advanced features like automatic weekly planning and recipe feedback.</p>
+                        <p className="text-muted-foreground mb-4">Upgrade to unlock advanced features.</p>
                          <Button size="lg" onClick={() => createCheckout('monthly')} disabled={loading.checkout}><Star className="w-4 h-4 mr-2" /> Upgrade to Pro</Button>
                     </div>
                 </CardContent>
@@ -301,11 +263,9 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
           </TabsContent>
         </Tabs>
       </div>
-
       {selectedMealDay && (
         <RecipeModal mealDay={selectedMealDay} isOpen={!!selectedMealDay} onClose={() => setSelectedMealDay(null)} />
       )}
     </div>
   );
 };
-
