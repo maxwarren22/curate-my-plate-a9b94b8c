@@ -75,12 +75,14 @@ export const Dashboard = ({ userProfile, onBackToQuiz }: DashboardProps) => {
             });
             setWeeklyPlan(transformedPlan);
 
+            // Fetch the most recent shopping list for the user
             const { data: shoppingListData, error: shoppingListError } = await supabase
-                .from('shopping_lists')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('week_start_date', weekStartDateString)
-                .single();
+            .from('shopping_lists')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('week_start_date', { ascending: false }) // Order by date to find the latest
+            .limit(1)                                       // Fetch only the most recent one
+            .maybeSingle();
             
             if (shoppingListError && shoppingListError.code !== 'PGRST116') {
                  console.error("Could not load shopping list", shoppingListError.message);
