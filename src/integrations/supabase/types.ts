@@ -65,43 +65,61 @@ export type Database = {
       profiles: {
         Row: {
           budget: string | null
+          can_comment: boolean | null
           cooking_time: string | null
           created_at: string
           cuisine_preferences: string[] | null
           dietary_restrictions: string[] | null
           display_name: string | null
-          email: string | null
+          generations_remaining: number | null
+          id: string
           meal_types: string[] | null
+          plan_addons: string[] | null
+          plan_generation_day: string | null
           serving_size: string | null
           skill_level: string | null
+          subscription_status: string | null
+          subscription_type: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           budget?: string | null
+          can_comment?: boolean | null
           cooking_time?: string | null
           created_at?: string
           cuisine_preferences?: string[] | null
           dietary_restrictions?: string[] | null
           display_name?: string | null
-          email?: string | null
+          generations_remaining?: number | null
+          id?: string
           meal_types?: string[] | null
+          plan_addons?: string[] | null
+          plan_generation_day?: string | null
           serving_size?: string | null
           skill_level?: string | null
+          subscription_status?: string | null
+          subscription_type?: string | null
           updated_at?: string
-          user_id?: string
+          user_id: string
         }
         Update: {
           budget?: string | null
+          can_comment?: boolean | null
           cooking_time?: string | null
           created_at?: string
           cuisine_preferences?: string[] | null
           dietary_restrictions?: string[] | null
           display_name?: string | null
-          email?: string | null
+          generations_remaining?: number | null
+          id?: string
           meal_types?: string[] | null
+          plan_addons?: string[] | null
+          plan_generation_day?: string | null
           serving_size?: string | null
           skill_level?: string | null
+          subscription_status?: string | null
+          subscription_type?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -110,7 +128,6 @@ export type Database = {
       recipes: {
         Row: {
           calories: number | null
-          cooking_tips: string | null
           created_at: string
           created_by_user: string | null
           id: string
@@ -118,11 +135,9 @@ export type Database = {
           recipe: string
           servings: number | null
           title: string
-          total_time_to_cook: string | null
         }
         Insert: {
           calories?: number | null
-          cooking_tips?: string | null
           created_at?: string
           created_by_user?: string | null
           id?: string
@@ -130,11 +145,9 @@ export type Database = {
           recipe: string
           servings?: number | null
           title: string
-          total_time_to_cook?: string | null
         }
         Update: {
           calories?: number | null
-          cooking_tips?: string | null
           created_at?: string
           created_by_user?: string | null
           id?: string
@@ -142,7 +155,6 @@ export type Database = {
           recipe?: string
           servings?: number | null
           title?: string
-          total_time_to_cook?: string | null
         }
         Relationships: []
       }
@@ -150,97 +162,71 @@ export type Database = {
         Row: {
           created_at: string
           id: string
-          items: Json
-          meal_plan_id: string | null
-          user_id: string | null
+          shopping_list: Json | null
+          user_id: string
+          week_start_date: string
         }
         Insert: {
           created_at?: string
           id?: string
-          items: Json
-          meal_plan_id?: string | null
-          user_id?: string | null
+          shopping_list?: Json | null
+          user_id: string
+          week_start_date: string
         }
         Update: {
           created_at?: string
           id?: string
-          items?: Json
-          meal_plan_id?: string | null
-          user_id?: string | null
-        }
-        Relationships: []
-      }
-      subscriptions: {
-        Row: {
-          created_at: string
-          current_period_end: string | null
-          current_period_start: string | null
-          id: string
-          plan_type: string
-          status: string
-          stripe_customer_id: string | null
-          stripe_subscription_id: string | null
-          updated_at: string
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          current_period_end?: string | null
-          current_period_start?: string | null
-          id?: string
-          plan_type?: string
-          status?: string
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
-          updated_at?: string
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          current_period_end?: string | null
-          current_period_start?: string | null
-          id?: string
-          plan_type?: string
-          status?: string
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
-          updated_at?: string
-          user_id?: string | null
+          shopping_list?: Json | null
+          user_id?: string
+          week_start_date?: string
         }
         Relationships: []
       }
       user_meal_history: {
         Row: {
+          cooking_tips: string | null
           created_at: string
           id: string
+          main_dish_recipe_id: string
           meal_date: string
           rating: number | null
-          recipe_id: string
+          side_dish_recipe_id: string | null
+          total_time_to_cook: string | null
           user_id: string
-          user_notes: string | null
         }
         Insert: {
+          cooking_tips?: string | null
           created_at?: string
           id?: string
+          main_dish_recipe_id: string
           meal_date: string
           rating?: number | null
-          recipe_id: string
+          side_dish_recipe_id?: string | null
+          total_time_to_cook?: string | null
           user_id: string
-          user_notes?: string | null
         }
         Update: {
+          cooking_tips?: string | null
           created_at?: string
           id?: string
+          main_dish_recipe_id?: string
           meal_date?: string
           rating?: number | null
-          recipe_id?: string
+          side_dish_recipe_id?: string | null
+          total_time_to_cook?: string | null
           user_id?: string
-          user_notes?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "user_meal_history_recipe_id_fkey"
-            columns: ["recipe_id"]
+            foreignKeyName: "user_meal_history_main_dish_recipe_id_fkey"
+            columns: ["main_dish_recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_meal_history_side_dish_recipe_id_fkey"
+            columns: ["side_dish_recipe_id"]
             isOneToOne: false
             referencedRelation: "recipes"
             referencedColumns: ["id"]
