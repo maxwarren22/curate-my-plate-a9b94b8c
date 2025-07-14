@@ -5,8 +5,13 @@ import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
   server: {
-    host: 'localhost',
+    // This allows Vite to be accessible from outside its container
+    host: true, 
     port: 8080,
+    // This is needed for HMR to work correctly in a Codespace
+    hmr: {
+      clientPort: 443,
+    },
   },
   plugins: [
     react(),
