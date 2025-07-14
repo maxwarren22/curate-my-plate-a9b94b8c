@@ -125,12 +125,12 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   };
   
-  const downloadPDF = async (type: 'full' | 'shopping') => {
+const downloadPDF = async (type: 'full' | 'shopping') => {
     if (!session) {
       toast({ title: "Authentication Error", description: "You must be signed in to download a PDF.", variant: "destructive" });
       return;
     }
-    
+
     setIsDownloading(true);
     try {
       const sanitizedPayload = {
@@ -155,24 +155,31 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         shoppingList: shoppingList,
       };
 
+      // Expect a JSON response from the function
       const { data, error } = await supabase.functions.invoke('generate-pdf', {
-        body: sanitizedPayload
+        body: sanitizedPayload,
       });
-      
+
       if (error) throw error;
-      if (!(data instanceof Blob)) {
-        throw new Error("The server did not return a valid PDF file.");
+
+      // Check for the 'pdf' property in the JSON response
+      if (data && typeof data.pdf === 'string') {
+        // Use the modern fetch API to decode the Base64 string into a Blob
+        const blob = await (await fetch(`data:application/pdf;base64,${data.pdf}`)).blob();
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${type}-plan.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+      } else {
+        console.error("The server did not return a valid PDF in the JSON response. Response:", data);
+        throw new Error("An unexpected response was received from the server.");
       }
 
-      const url = window.URL.createObjectURL(data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${type}-plan.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      a.remove();
-      
     } catch (error) {
         toast({ title: "PDF Generation Failed", description: (error as Error).message, variant: "destructive" });
     } finally {

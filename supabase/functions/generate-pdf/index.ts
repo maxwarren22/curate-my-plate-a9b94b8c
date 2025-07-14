@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { encode } from "https://deno.land/std@0.177.0/encoding/base64.ts";
 import { templateHtml } from './template.ts';
 
-// --- (All your interfaces, CORS headers, and the generateHtml function are correct and do not need changes ) ---
+// --- (Your interfaces and CORS headers are correct) ---
 interface Recipe {
   title: string;
   ingredients?: string;
@@ -26,29 +26,39 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-function fillHtmlTemplate(template: string, data: RequestBody): string {
-    let finalHtml = template;
 
-    if (data.type === 'shopping') {
-        const shoppingListHtml = Object.entries(data.shoppingList ?? {})
+// =================================================================
+// --- THIS FUNCTION CONTAINS THE FIX ---
+// =================================================================
+function fillHtmlTemplate(template: string, data: RequestBody): string {
+    let mealCardsHtml = '';
+    let shoppingListHtml = '';
+
+    // Always generate the shopping list HTML if the data is available
+    if (data.shoppingList && Object.keys(data.shoppingList).length > 0) {
+        shoppingListHtml = `<h1>Shopping List</h1>` + Object.entries(data.shoppingList)
             .map(([category, items]) => `
                 <h2>${category}</h2>
                 <ul>
                     ${(items ?? []).map(item => `<li>${item}</li>`).join('')}
                 </ul>
             `).join('');
-        finalHtml = finalHtml.replace('{{SHOPPING_LIST}}', shoppingListHtml).replace('{{MEAL_CARDS}}', '');
-    } else {
-        const mealCardsHtml = (data.meals ?? []).map(meal => {
+    }
+
+    // Always generate the meal cards HTML if the data is available
+    if (data.meals && data.meals.length > 0) {
+        mealCardsHtml = data.meals.map(meal => {
             const ingredients = `${meal.main_dish?.ingredients || ''}\n${meal.side_dish?.ingredients || ''}`
                 .split('\n').map(i => i.trim().replace(/^- ?/, '')).filter(Boolean).map(i => `<li>${i}</li>`).join('');
-            
+
             const recipe = `${meal.main_dish?.recipe || ''}\n${meal.side_dish?.recipe || ''}`
                 .split('\n').map(r => r.trim().replace(/^\d+\.? ?/, '')).filter(Boolean).map(r => `<li>${r}</li>`).join('');
 
             return `
               <div class="meal-card">
-                <h1>${meal.day}: ${meal.main_dish.title}</h1>
+                <div class="meal-card-header">
+                  <h1>${meal.day}: ${meal.main_dish.title}</h1>
+                </div>
                 <h3>Ingredients</h3>
                 <ul>${ingredients}</ul>
                 <h3>Recipe</h3>
@@ -56,13 +66,18 @@ function fillHtmlTemplate(template: string, data: RequestBody): string {
               </div>
             `;
         }).join('');
-        finalHtml = finalHtml.replace('{{MEAL_CARDS}}', mealCardsHtml).replace('{{SHOPPING_LIST}}', '');
+    }
+
+    // Replace placeholders based on the requested PDF type
+    if (data.type === 'shopping') {
+        return template.replace('{{SHOPPING_LIST}}', shoppingListHtml).replace('{{MEAL_CARDS}}', '');
     }
     
-    return finalHtml;
+    // For a 'full' plan, include both
+    return template.replace('{{MEAL_CARDS}}', mealCardsHtml).replace('{{SHOPPING_LIST}}', shoppingListHtml);
 }
 
-// --- Main Server Function ---
+// --- Main Server Function (No changes needed here) ---
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -80,16 +95,12 @@ serve(async (req: Request) => {
     const response = await fetch('https://api.pdfshift.io/v3/convert/pdf', {
       method: 'POST',
       headers: {
-        // =================================================================
-        // --- FINAL FIX: Format the API key correctly before encoding ---
-        // Prepend "api:" to the key as required by PDF-Shift.
-        // =================================================================
         'Authorization': `Basic ${encode(`api:${apiKey}` )}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         source: finalHtml,
-        sandbox: false 
+        sandbox: true 
       }),
     });
 
@@ -99,8 +110,11 @@ serve(async (req: Request) => {
       throw new Error(`Failed to generate PDF: ${errorText}`);
     }
 
-    return new Response(response.body, {
-      headers: { ...corsHeaders, 'Content-Type': 'application/pdf' },
+    const pdfArrayBuffer = await response.arrayBuffer();
+    const pdfBase64 = encode(pdfArrayBuffer);
+
+    return new Response(JSON.stringify({ pdf: pdfBase64 }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
@@ -113,7 +127,6 @@ serve(async (req: Request) => {
     });
   }
 });
-
 
 
 
