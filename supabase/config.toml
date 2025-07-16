@@ -1,1 +1,5 @@
 project_id = "bgppdlqgiuvrdydrvbko"
+
+[schedules.send-weekly-plan]
+  cron = "0 10 * * *"
+  function_name = "send-weekly-plan"

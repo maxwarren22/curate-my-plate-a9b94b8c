@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { RecipeModal } from "./RecipeModal";
 import { PantryManager } from "./PantryManager";
 import { ProfileModal } from "./ProfileModal";
-import { Loader2, Download, RefreshCw } from "lucide-react";
+import { SavedRecipes } from "./SavedRecipes";
+import { Loader2, Download, RefreshCw, Star } from "lucide-react";
 import { MealDay } from "@/types";
 
 interface UserProfile {
@@ -22,6 +23,18 @@ interface UserProfile {
   budget: string;
 }
 
+interface SubscriptionStatus {
+    status: 'trial' | 'active';
+    generations_remaining: number | null;
+}
+
+interface PantryItem {
+  id: string;
+  ingredient_name: string;
+  quantity?: string;
+  expiry_date?: string;
+}
+
 interface DashboardProps {
   userProfile: UserProfile;
 }
@@ -31,16 +44,32 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
   const { toast } = useToast();
   const [selectedMealDay, setSelectedMealDay] = useState<MealDay | null>(null);
   const [weeklyPlan, setWeeklyPlan] = useState<MealDay[]>([]);
-  const [shoppingList, setShoppingList] = useState<Record<string, string[]>>({});
+  const [shoppingList, setShoppingList] = useState<{ category: string, items: string[] }[]>([]);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [shoppingListBudget, setShoppingListBudget] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  const checkSubscription = useCallback(async () => {
+    if (!session) return;
+    try {
+      const { data, error } = await supabase.functions.invoke('check-subscription');
+      if (error) throw error;
+      setSubscription(data);
+    } catch (error) {
+      console.error("Error checking subscription:", error);
+    }
+  }, [session]);
+
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
+      await checkSubscription();
+
       const { data: mealHistory, error: mealError } = await supabase
         .from('user_meal_history')
         .select(`
@@ -80,10 +109,18 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
       
       if (shoppingListError) console.error("Could not load shopping list", shoppingListError.message);
 
-      if (shoppingListData && typeof shoppingListData.shopping_list === 'object' && shoppingListData.shopping_list !== null) {
-          setShoppingList(shoppingListData.shopping_list as Record<string, string[]>);
+      if (shoppingListData && shoppingListData.shopping_list) {
+        if (Array.isArray(shoppingListData.shopping_list)) {
+          setShoppingList(shoppingListData.shopping_list as { category: string, items: string[] }[]);
+        } else if (typeof shoppingListData.shopping_list === 'object') {
+          const formattedList = Object.entries(shoppingListData.shopping_list).map(([category, items]) => ({
+            category,
+            items: items as string[]
+          }));
+          setShoppingList(formattedList);
+        }
       } else {
-          setShoppingList({});
+          setShoppingList([]);
       }
 
     } catch (error) {
@@ -91,7 +128,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     } finally {
         setLoading(false);
     }
-  }, [user]);
+  }, [user, checkSubscription]);
 
   useEffect(() => {
     if (user) {
@@ -113,7 +150,9 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         if (data.success && data.mealPlan) {
             setWeeklyPlan(data.mealPlan.meal_plan);
             setShoppingList(data.mealPlan.shopping_list);
+            setShoppingListBudget(data.mealPlan.budget);
             toast({ title: "Success!", description: "Your new meal plan is ready." });
+            await checkSubscription();
         } else {
             throw new Error(data.error || "Failed to get meal plan data from server.");
         }
@@ -125,14 +164,20 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   };
   
-const downloadPDF = async (type: 'full' | 'shopping') => {
+  const downloadPDF = async (type: 'full' | 'shopping') => {
     if (!session) {
       toast({ title: "Authentication Error", description: "You must be signed in to download a PDF.", variant: "destructive" });
       return;
     }
-
+    
     setIsDownloading(true);
     try {
+      // --- THIS IS THE FIX ---
+      // Convert the shopping list object to an array before sending
+      const shoppingListForPDF = Array.isArray(shoppingList) 
+        ? shoppingList 
+        : Object.entries(shoppingList).map(([category, items]) => ({ category, items: items as string[] }));
+
       const sanitizedPayload = {
         type,
         meals: weeklyPlan.map(meal => ({
@@ -152,19 +197,16 @@ const downloadPDF = async (type: 'full' | 'shopping') => {
           total_time_to_cook: meal.total_time_to_cook,
           cooking_tips: meal.cooking_tips,
         })),
-        shoppingList: shoppingList,
+        shoppingList: shoppingListForPDF, // Use the formatted list
       };
 
-      // Expect a JSON response from the function
       const { data, error } = await supabase.functions.invoke('generate-pdf', {
-        body: sanitizedPayload,
+        body: sanitizedPayload
       });
-
+      
       if (error) throw error;
-
-      // Check for the 'pdf' property in the JSON response
+      
       if (data && typeof data.pdf === 'string') {
-        // Use the modern fetch API to decode the Base64 string into a Blob
         const blob = await (await fetch(`data:application/pdf;base64,${data.pdf}`)).blob();
 
         const url = window.URL.createObjectURL(blob);
@@ -176,16 +218,31 @@ const downloadPDF = async (type: 'full' | 'shopping') => {
         window.URL.revokeObjectURL(url);
         a.remove();
       } else {
-        console.error("The server did not return a valid PDF in the JSON response. Response:", data);
-        throw new Error("An unexpected response was received from the server.");
+        throw new Error("The server did not return a valid PDF file.");
       }
-
+      
     } catch (error) {
         toast({ title: "PDF Generation Failed", description: (error as Error).message, variant: "destructive" });
     } finally {
         setIsDownloading(false);
     }
   };
+
+  const adjustedShoppingList = useMemo(() => {
+    if (pantryItems.length === 0) {
+      return shoppingList;
+    }
+
+    const pantryIngredientNames = new Set(pantryItems.map(item => item.ingredient_name.toLowerCase()));
+
+    return shoppingList.map(category => {
+      const newItems = category.items.filter(item => {
+        const itemName = item.split('(')[0].trim().toLowerCase();
+        return !pantryIngredientNames.has(itemName);
+      });
+      return { ...category, items: newItems };
+    });
+  }, [shoppingList, pantryItems]);
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/30">
@@ -201,10 +258,11 @@ const downloadPDF = async (type: 'full' | 'shopping') => {
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         <Tabs defaultValue="meals" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="meals">Meal Plan</TabsTrigger>
             <TabsTrigger value="shopping">Shopping List</TabsTrigger>
             <TabsTrigger value="pantry">Pantry</TabsTrigger>
+            <TabsTrigger value="saved">Saved Recipes</TabsTrigger>
           </TabsList>
 
           <TabsContent value="meals" className="space-y-6 mt-6">
@@ -212,15 +270,23 @@ const downloadPDF = async (type: 'full' | 'shopping') => {
               <h2 className="text-xl font-semibold text-foreground">
                 This Week's Meal Plan
               </h2>
-              <div className="flex gap-3">
+              <div className="flex items-center gap-3">
                 <Button onClick={() => downloadPDF('full')} disabled={isDownloading || loading || weeklyPlan.length === 0} variant="outline">
                   {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                   Download Plan
                 </Button>
-                <Button onClick={generateMealPlan} disabled={generatingPlan}>
-                  <RefreshCw className={`w-4 h-4 mr-2 ${generatingPlan ? 'animate-spin' : ''}`} />
-                  {generatingPlan ? "Generating..." : "New Plan"}
-                </Button>
+                <div className="text-center">
+                  <Button onClick={generateMealPlan} disabled={generatingPlan}>
+                    <RefreshCw className={`w-4 h-4 mr-2 ${generatingPlan ? 'animate-spin' : ''}`} />
+                    {generatingPlan ? "Generating..." : "New Plan"}
+                  </Button>
+                  {subscription?.status === 'trial' && (
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-1">
+                      <Star className="w-3 h-3 text-yellow-500" /> 
+                      {subscription.generations_remaining} trial generations left
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
             {loading ? (
@@ -260,27 +326,35 @@ const downloadPDF = async (type: 'full' | 'shopping') => {
                 <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                         <CardTitle>Shopping List</CardTitle>
-                        <CardDescription>Items to buy for this week's meals.</CardDescription>
+                        {shoppingListBudget && (
+                            <CardDescription>
+                                Estimated Cost: {shoppingListBudget}
+                            </CardDescription>
+                        )}
                     </div>
-                    <Button onClick={() => downloadPDF('shopping')} disabled={isDownloading || loading || Object.keys(shoppingList).length === 0} variant="outline">
+                    <Button onClick={() => downloadPDF('shopping')} disabled={isDownloading || loading || adjustedShoppingList.length === 0} variant="outline">
                         {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
                         Print List
                     </Button>
                 </CardHeader>
                 <CardContent>
-                    {loading ? <div className="text-center p-4">Loading...</div> : Object.keys(shoppingList).length > 0 ? (
+                    {loading ? <div className="text-center p-4">Loading...</div> : adjustedShoppingList.length > 0 ? (
                         <div className="columns-2 md:columns-3 gap-8">
-                            {Object.entries(shoppingList).map(([category, items]) => (
-                                <div key={category} className="mb-4 break-inside-avoid">
-                                    <h4 className="font-semibold text-lg mb-2 text-primary">{category}</h4>
-                                    <ul className="space-y-2">
-                                        {(items || []).map((item, index) => (
-                                            <li key={index} className="flex items-center gap-3 text-sm">
-                                                <div className="w-4 h-4 border border-muted-foreground rounded-sm" />
-                                                <span>{item.trim().replace(/^- ?/, '')}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
+                            {adjustedShoppingList.map((section) => (
+                                <div key={section.category} className="mb-4 break-inside-avoid">
+                                    <h4 className="font-semibold text-lg mb-2 text-primary">{section.category}</h4>
+                                    {section.items.length > 0 ? (
+                                      <ul className="space-y-2">
+                                          {section.items.map((item, index) => (
+                                              <li key={index} className="flex items-center gap-3 text-sm">
+                                                  <div className="w-4 h-4 border border-muted-foreground rounded-sm" />
+                                                  <span>{item.trim().replace(/^- ?/, '')}</span>
+                                              </li>
+                                          ))}
+                                      </ul>
+                                    ) : (
+                                      <p className="text-sm text-muted-foreground">No ingredients required.</p>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -290,7 +364,11 @@ const downloadPDF = async (type: 'full' | 'shopping') => {
           </TabsContent>
 
           <TabsContent value="pantry" className="mt-6">
-            <PantryManager onPantryChange={() => { /* This will be used later */ }} />
+            <PantryManager onPantryChange={setPantryItems} />
+          </TabsContent>
+
+          <TabsContent value="saved" className="mt-6">
+            <SavedRecipes />
           </TabsContent>
         </Tabs>
       </div>

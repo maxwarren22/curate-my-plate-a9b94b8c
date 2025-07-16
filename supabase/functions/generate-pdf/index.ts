@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { encode } from "https://deno.land/std@0.177.0/encoding/base64.ts";
 import { templateHtml } from './template.ts';
 
-// --- (Your interfaces and CORS headers are correct) ---
+// --- Interfaces (no changes needed) ---
 interface Recipe {
   title: string;
   ingredients?: string;
@@ -14,13 +14,14 @@ interface MealDay {
   main_dish: Recipe;
   side_dish: Recipe | null;
 }
-interface ShoppingList {
-  [category: string]: string[];
+interface ShoppingListItem { // A more specific type for clarity
+  category: string;
+  items: string[];
 }
 interface RequestBody {
   type: 'full' | 'shopping';
   meals: MealDay[];
-  shoppingList: ShoppingList;
+  shoppingList: ShoppingListItem[]; // The shoppingList is an array
 }
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,23 +35,23 @@ function fillHtmlTemplate(template: string, data: RequestBody): string {
     let mealCardsHtml = '';
     let shoppingListHtml = '';
 
-    // Always generate the shopping list HTML if the data is available
-    if (data.shoppingList && Object.keys(data.shoppingList).length > 0) {
-        shoppingListHtml = `<h1>Shopping List</h1>` + Object.entries(data.shoppingList)
-            .map(([category, items]) => `
-                <h2>${category}</h2>
+    // Check if shoppingList exists and is an array
+    if (data.shoppingList && Array.isArray(data.shoppingList)) {
+        // Now correctly iterate over the array of objects
+        shoppingListHtml = `<h1>Shopping List</h1>` + data.shoppingList
+            .map(section => `
+                <h2>${section.category}</h2>
                 <ul>
-                    ${(items ?? []).map(item => `<li>${item}</li>`).join('')}
+                    ${(section.items ?? []).map(item => `<li>${item}</li>`).join('')}
                 </ul>
             `).join('');
     }
 
-    // Always generate the meal cards HTML if the data is available
     if (data.meals && data.meals.length > 0) {
         mealCardsHtml = data.meals.map(meal => {
             const ingredients = `${meal.main_dish?.ingredients || ''}\n${meal.side_dish?.ingredients || ''}`
                 .split('\n').map(i => i.trim().replace(/^- ?/, '')).filter(Boolean).map(i => `<li>${i}</li>`).join('');
-
+            
             const recipe = `${meal.main_dish?.recipe || ''}\n${meal.side_dish?.recipe || ''}`
                 .split('\n').map(r => r.trim().replace(/^\d+\.? ?/, '')).filter(Boolean).map(r => `<li>${r}</li>`).join('');
 
@@ -67,13 +68,11 @@ function fillHtmlTemplate(template: string, data: RequestBody): string {
             `;
         }).join('');
     }
-
-    // Replace placeholders based on the requested PDF type
+    
     if (data.type === 'shopping') {
         return template.replace('{{SHOPPING_LIST}}', shoppingListHtml).replace('{{MEAL_CARDS}}', '');
     }
     
-    // For a 'full' plan, include both
     return template.replace('{{MEAL_CARDS}}', mealCardsHtml).replace('{{SHOPPING_LIST}}', shoppingListHtml);
 }
 
@@ -100,7 +99,7 @@ serve(async (req: Request) => {
       },
       body: JSON.stringify({
         source: finalHtml,
-        sandbox: true 
+        sandbox: false 
       }),
     });
 

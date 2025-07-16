@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -7,35 +7,66 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Input } from '@/components/ui/input';
-import { Trash2, Plus, Loader2 } from 'lucide-react';
+import { Trash2, Plus, Loader2, Star } from 'lucide-react';
 
-// Define options for the form
 const dietaryOptions = ['Vegetarian', 'Vegan', 'Gluten-Free', 'Dairy-Free', 'None'];
 const cuisineOptions = ['Italian', 'Mexican', 'Asian', 'Mediterranean', 'American', 'Indian'];
 const timeOptions = ['15-30 minutes', '30-60 minutes', '1+ hours'];
 const skillOptions = ['Beginner', 'Intermediate', 'Advanced'];
+const budgetOptions = ['Under $50', '$50-$100', '$100-$150', '$150+', 'No budget constraints'];
+const equipmentOptions = ['Oven', 'Microwave', 'Air Fryer', 'Instant Pot', 'Slow Cooker'];
+const proteinOptions = ['Chicken', 'Beef', 'Pork', 'Fish', 'Tofu', 'Beans & Lentils'];
+const goalOptions = ['Weight Loss', 'Muscle Gain', 'General Wellness', 'Heart Health'];
+
+// --- THIS IS THE FIX ---
+// Create a local interface to match the full profiles table structure
+interface ProfileData {
+    dietary_restrictions: string[];
+    cuisine_preferences: string[];
+    cooking_time: string;
+    skill_level: string;
+    budget: string;
+    health_goals: string;
+    kitchen_equipment: string[];
+    protein_preferences: string[];
+}
 
 export const PreferencesForm = () => {
-    const { user } = useAuth();
+    const { user, session } = useAuth();
     const { toast } = useToast();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [subscriptionStatus, setSubscriptionStatus] = useState<'trial' | 'active' | null>(null);
 
-    // State for user preferences
     const [dietary, setDietary] = useState<string[]>([]);
     const [cuisine, setCuisine] = useState<string[]>([]);
     const [cookingTime, setCookingTime] = useState<string>('');
     const [skillLevel, setSkillLevel] = useState<string>('');
+    const [budget, setBudget] = useState<string>('');
+    const [healthGoals, setHealthGoals] = useState<string>('');
+    const [kitchenEquipment, setKitchenEquipment] = useState<string[]>([]);
+    const [proteinPreferences, setProteinPreferences] = useState<string[]>([]);
     
-    // State for disliked ingredients
     const [disliked, setDisliked] = useState<{ id: string; ingredient_name: string }[]>([]);
     const [newDislikedItem, setNewDislikedItem] = useState('');
+
+    const checkSubscription = useCallback(async () => {
+        if (!session) return;
+        try {
+            const { data } = await supabase.functions.invoke('check-subscription');
+            setSubscriptionStatus(data.status);
+        } catch (error) {
+            console.error("Error checking subscription:", error);
+        }
+    }, [session]);
 
     useEffect(() => {
         const fetchProfile = async () => {
             if (!user) return;
             setLoading(true);
             try {
+                await checkSubscription();
+
                 const { data: profile, error: profileError } = await supabase
                     .from('profiles')
                     .select('*')
@@ -45,10 +76,16 @@ export const PreferencesForm = () => {
                 if (profileError) throw profileError;
 
                 if (profile) {
-                    setDietary(profile.dietary_restrictions || []);
-                    setCuisine(profile.cuisine_preferences || []);
-                    setCookingTime(profile.cooking_time || '');
-                    setSkillLevel(profile.skill_level || '');
+                    // Use the local interface for type safety
+                    const typedProfile = profile as unknown as ProfileData;
+                    setDietary(typedProfile.dietary_restrictions || []);
+                    setCuisine(typedProfile.cuisine_preferences || []);
+                    setCookingTime(typedProfile.cooking_time || '');
+                    setSkillLevel(typedProfile.skill_level || '');
+                    setBudget(typedProfile.budget || '');
+                    setHealthGoals(typedProfile.health_goals || '');
+                    setKitchenEquipment(typedProfile.kitchen_equipment || []);
+                    setProteinPreferences(typedProfile.protein_preferences || []);
                 }
 
                 const { data: dislikedItems, error: dislikedError } = await supabase
@@ -67,7 +104,7 @@ export const PreferencesForm = () => {
         };
 
         fetchProfile();
-    }, [user, toast]);
+    }, [user, toast, checkSubscription]);
 
     const handleSave = async () => {
         if (!user) return;
@@ -78,6 +115,10 @@ export const PreferencesForm = () => {
                 cuisine_preferences: cuisine,
                 cooking_time: cookingTime,
                 skill_level: skillLevel,
+                budget: budget,
+                health_goals: healthGoals,
+                kitchen_equipment: kitchenEquipment,
+                protein_preferences: proteinPreferences,
                 updated_at: new Date().toISOString(),
             }).eq('user_id', user.id);
 
@@ -111,6 +152,21 @@ export const PreferencesForm = () => {
         setDisliked(disliked.filter(item => item.id !== id));
     };
 
+    const PremiumWrapper = ({ children }: { children: React.ReactNode }) => {
+        if (subscriptionStatus === 'active') {
+            return <>{children}</>;
+        }
+        return (
+            <div className="relative p-6 border rounded-lg bg-muted/30 opacity-60">
+                <div className="absolute inset-0 bg-background/50 backdrop-blur-sm z-10"></div>
+                <div className="absolute top-4 right-4 z-20 flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/20 text-yellow-700 text-xs font-semibold">
+                    <Star className="w-4 h-4" />
+                    Pro Feature
+                </div>
+                {children}
+            </div>
+        );
+    };
 
     if (loading) return <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin" /></div>;
 
@@ -143,6 +199,38 @@ export const PreferencesForm = () => {
                     {skillOptions.map(opt => <ToggleGroupItem key={opt} value={opt}>{opt}</ToggleGroupItem>)}
                 </ToggleGroup>
             </div>
+
+            <div className="space-y-2">
+                <Label className="text-base">Weekly Food Budget</Label>
+                <ToggleGroup type="single" value={budget} onValueChange={(val) => val && setBudget(val)} className="flex-wrap justify-start">
+                    {budgetOptions.map(opt => <ToggleGroupItem key={opt} value={opt}>{opt}</ToggleGroupItem>)}
+                </ToggleGroup>
+            </div>
+            
+            <div className="space-y-2">
+                <Label className="text-base">Health & Fitness Goals</Label>
+                <ToggleGroup type="single" value={healthGoals} onValueChange={(val) => val && setHealthGoals(val)} className="flex-wrap justify-start">
+                    {goalOptions.map(opt => <ToggleGroupItem key={opt} value={opt}>{opt}</ToggleGroupItem>)}
+                </ToggleGroup>
+            </div>
+
+            <PremiumWrapper>
+                <div className="space-y-2">
+                    <Label className="text-base">Kitchen Equipment</Label>
+                    <ToggleGroup type="multiple" value={kitchenEquipment} onValueChange={setKitchenEquipment} className="flex-wrap justify-start">
+                        {equipmentOptions.map(opt => <ToggleGroupItem key={opt} value={opt}>{opt}</ToggleGroupItem>)}
+                    </ToggleGroup>
+                </div>
+            </PremiumWrapper>
+
+            <PremiumWrapper>
+                <div className="space-y-2">
+                    <Label className="text-base">Protein Preferences</Label>
+                    <ToggleGroup type="multiple" value={proteinPreferences} onValueChange={setProteinPreferences} className="flex-wrap justify-start">
+                        {proteinOptions.map(opt => <ToggleGroupItem key={opt} value={opt}>{opt}</ToggleGroupItem>)}
+                    </ToggleGroup>
+                </div>
+            </PremiumWrapper>
 
             <Card>
                 <CardHeader>

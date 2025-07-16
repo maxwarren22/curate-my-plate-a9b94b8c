@@ -7,7 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// --- Type Definitions ---
 interface Profile {
   dietary_restrictions?: string[];
   cuisine_preferences?: string[];
@@ -17,6 +16,9 @@ interface Profile {
   budget?: string;
   display_name?: string;
   generations_remaining: number;
+  kitchen_equipment?: string[];
+  protein_preferences?: string[];
+  health_goals?: string;
 }
 
 interface Subscription {
@@ -39,6 +41,76 @@ interface RecipeInfo {
 const log = (level: "INFO" | "ERROR", step: string, details: unknown = {}) => {
   console.log(`[${level}] [generate-meal-plan] ${step}`, JSON.stringify(details));
 };
+
+async function createEmbedding(text: string, openaiApiKey: string): Promise<number[]> {
+  const response = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${openaiApiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "text-embedding-ada-002",
+      input: text
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to create embedding: ${await response.text()}`);
+  }
+
+  const { data } = await response.json();
+  return data[0].embedding;
+}
+
+async function saveOrGetRecipe(
+  supabaseClient: SupabaseClient,
+  dish: Recipe,
+  userId: string,
+  openaiApiKey: string
+): Promise<string> {
+  const embeddingText = `${dish.title}\n${dish.ingredients}`;
+  const newEmbedding = await createEmbedding(embeddingText, openaiApiKey);
+
+  const { data: similarRecipes, error: matchError } = await supabaseClient.rpc('match_recipe', {
+    query_embedding: newEmbedding,
+    match_threshold: 0.95,
+    match_count: 1
+  });
+
+  if (matchError) {
+    log("ERROR", "Error matching recipe", matchError);
+    throw matchError;
+  }
+
+  if (similarRecipes && similarRecipes.length > 0) {
+    log("INFO", `Found similar recipe: "${similarRecipes[0].title}" for new recipe "${dish.title}"`);
+    return similarRecipes[0].id;
+  }
+
+  log("INFO", `No similar recipe found. Creating new recipe: "${dish.title}"`);
+  const { data: newRecipe, error: insertError } = await supabaseClient
+      .from('recipes')
+      .insert({
+          title: dish.title,
+          ingredients: dish.ingredients,
+          recipe: dish.recipe,
+          calories: dish.calories,
+          created_by_user: userId,
+          embedding: newEmbedding
+      })
+      .select('id')
+      .single();
+
+  if (insertError) {
+    log("ERROR", "Error inserting new recipe", insertError);
+    throw insertError;
+  }
+
+  if (!newRecipe) {
+      throw new Error("Failed to create new recipe.");
+  }
+
+  return newRecipe.id;
+}
+
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -123,6 +195,20 @@ serve(async (req: Request) => {
       .select('main_dish_recipe_id, recipes!main_dish_recipe_id(title)')
       .eq('user_id', user.id)
       .eq('rating', -1);
+      
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const { data: recentMealsData, error: recentMealsError } = await supabaseClient
+        .from('user_meal_history')
+        .select('recipes!main_dish_recipe_id(title)')
+        .eq('user_id', user.id)
+        .gte('meal_date', twoWeeksAgo.toISOString().split('T')[0]);
+
+    if(recentMealsError) {
+        log("ERROR", "Error fetching recent meals", recentMealsError);
+    }
+
+    const recentMealsStr = recentMealsData?.map((item: { recipes: { title: string }[] | null }) => item.recipes?.[0]?.title).filter(Boolean).join(', ') || 'None';
 
     const likedRecipes = likedRecipesData as { recipes: RecipeInfo | null }[] | null;
     const dislikedRecipes = dislikedRecipesData as { recipes: RecipeInfo | null }[] | null;
@@ -133,6 +219,16 @@ serve(async (req: Request) => {
     const dislikedIngredientsStr = (dislikedIngredients as DislikedItem[])?.map((item) => item.ingredient_name).join(', ') || 'None';
     const likedRecipesStr = likedRecipes?.map((item) => item.recipes?.title).filter(Boolean).join(', ') || 'None';
     const dislikedRecipesStr = dislikedRecipes?.map((item) => item.recipes?.title).filter(Boolean).join(', ') || 'None';
+    const healthGoalsStr = profile.health_goals || 'Not specified';
+
+    let premiumPreferences = '';
+    if (!isTrialUser) {
+        premiumPreferences = `
+        **Premium Subscriber Preferences:**
+        - Available Kitchen Equipment: ${profile.kitchen_equipment?.join(', ') || 'Not specified'}
+        - Protein Preferences: ${profile.protein_preferences?.join(', ') || 'Not specified'}
+        `;
+    }
 
     const prompt = `
       Create a 7-day dinner meal plan based on the user's preferences.
@@ -140,6 +236,7 @@ serve(async (req: Request) => {
       **User Preferences:**
       - Dietary Restrictions: ${dietaryRestrictions}
       - Cuisine Preferences: ${cuisinePreferences}
+      - Health & Fitness Goals: ${healthGoalsStr}
       - Available Cooking Time: ${profile.cooking_time || 'Any'}
       - Skill Level: ${profile.skill_level || 'Beginner'}
       - Servings per Meal: ${profile.serving_size || '2'}
@@ -147,23 +244,35 @@ serve(async (req: Request) => {
       - User Name: ${profile.display_name || 'Valued User'}
       - Pantry Items to Use: ${pantryItemsStr}
       - Ingredients to Avoid: ${dislikedIngredientsStr}
-      - Previously Liked Recipes: ${likedRecipesStr} (try to include similar meals)
-      - Previously Disliked Recipes: ${dislikedRecipesStr} (avoid these and similar meals)
+      - Previously Liked Recipes: ${likedRecipesStr} (Use these for inspiration on style and flavors, but prioritize new meal ideas.)
+      - Previously Disliked Recipes: ${dislikedRecipesStr} (Avoid these and similar meals entirely.)
+
+      ${premiumPreferences}
+
+      **Recent Meal History to Avoid:**
+      - The user has recently had the following meals. Do not include these specific dishes in the new plan: ${recentMealsStr}
+
+      **Creative Mandate:**
+      - **Prioritize Variety:** Your primary goal is to generate a new and interesting meal plan. Do not repeat any meals from the "Recent Meal History to Avoid" list.
+      - **Be Creative:** If the user enjoys a wide range of cuisines, feel free to introduce a "Chef's Special" or a meal from a related cuisine to keep the plan interesting.
 
       **Output Requirements:**
       - The output must be a single, minified, valid JSON object.
       - Each dish must have a list of ingredients formatted as a single string, with each ingredient prefixed by a hyphen and separated by a newline character (\\n).
-      - The shopping_list must be a JSON object with categories as keys and an array of ingredient strings as values.
+      - **Crucially, the shopping_list must be an array of objects.** Each object must have a "category" and an "items" array.
+      - **Use the following categories in this exact order:** "Produce", "Protein", "Dairy", "Bakery", "Pantry", "Canned Goods", "Spices", "Other".
+      - **Categorize items correctly.** For example, canned goods like '1 can of chickpeas' belong in the "Canned Goods" category, not "Pantry".
 
       **JSON Structure Example:**
       {
         "name": "Valued User",
         "budget": "Est. $100-$120",
-        "shopping_list": {
-          "Produce": ["1 bunch asparagus", "2 cloves garlic"],
-          "Protein": ["1 lb chicken breast"],
-          "Pantry": ["1 tbsp olive oil"]
-        },
+        "shopping_list": [
+          { "category": "Produce", "items": ["1 bunch asparagus", "2 cloves garlic"] },
+          { "category": "Protein", "items": ["1 lb chicken breast"] },
+          { "category": "Pantry", "items": ["1 tbsp olive oil"] },
+          { "category": "Canned Goods", "items": ["1 can of chickpeas"] }
+        ],
         "meal_plan": [
           {
             "day": "Monday",
@@ -201,7 +310,7 @@ serve(async (req: Request) => {
           { role: "system", content: "You are a professional chef. Generate a valid JSON object based on the user's request, strictly following the requested structure and formats." },
           { role: "user", content: prompt }
         ],
-        temperature: 0.7,
+        temperature: 0.8,
         max_tokens: 4000,
         response_format: { type: "json_object" }
       }),
@@ -236,7 +345,8 @@ serve(async (req: Request) => {
         .insert({ 
           user_id: user.id, 
           week_start_date: weekStartDateString,
-          shopping_list: planData.shopping_list 
+          shopping_list: planData.shopping_list,
+          budget: planData.budget
         });
     
       if (shoppingListError) {
@@ -252,8 +362,8 @@ serve(async (req: Request) => {
         mealDate.setDate(weekStartDate.getDate() + i);
         const mealDateStr = mealDate.toISOString().split('T')[0];
     
-        const mainDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.main_dish, user.id);
-        const sideDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.side_dish, user.id);
+        const mainDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.main_dish, user.id, openaiApiKey);
+        const sideDishRecipeId = await saveOrGetRecipe(supabaseClient, meal.side_dish, user.id, openaiApiKey);
     
         const { error: mealHistoryError } = await supabaseClient
             .from('user_meal_history')
@@ -287,41 +397,3 @@ serve(async (req: Request) => {
     });
   }
 });
-
-async function saveOrGetRecipe(supabaseClient: SupabaseClient, dish: Recipe, userId: string): Promise<string> {
-    const { data: existingRecipe, error: searchError } = await supabaseClient
-        .from('recipes')
-        .select('id')
-        .eq('title', dish.title)
-        .maybeSingle();
-
-    if (searchError) {
-        throw searchError;
-    }
-
-    if (existingRecipe) {
-        return existingRecipe.id;
-    }
-
-    const { data: newRecipe, error: insertError } = await supabaseClient
-        .from('recipes')
-        .insert({
-            title: dish.title,
-            ingredients: dish.ingredients,
-            recipe: dish.recipe,
-            calories: dish.calories,
-            created_by_user: userId
-        })
-        .select('id')
-        .single();
-
-    if (insertError) {
-        throw insertError;
-    }
-    
-    if (!newRecipe) {
-        throw new Error("Failed to create new recipe.");
-    }
-  
-    return newRecipe.id;
-}
