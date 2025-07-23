@@ -1,11 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
 import { Trash2, Plus, Minus } from "lucide-react";
 
 interface PantryItem {
@@ -16,85 +13,19 @@ interface PantryItem {
 }
 
 interface PantryManagerProps {
-  onPantryChange: (items: PantryItem[]) => void;
+  items: PantryItem[];
+  onAddItem: (item: { name: string; quantity: string; expiry: string }) => Promise<void>;
+  onUpdateItemQuantity: (id: string, newQuantity: number) => Promise<void>;
+  onRemoveItem: (id: string) => Promise<void>;
+  loading: boolean;
 }
 
-export const PantryManager = ({ onPantryChange }: PantryManagerProps) => {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+export const PantryManager = ({ items, onAddItem, onUpdateItemQuantity, onRemoveItem, loading }: PantryManagerProps) => {
   const [newPantryItem, setNewPantryItem] = useState({ name: '', quantity: '', expiry: '' });
-  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      loadPantryData();
-    }
-  }, [user]);
-
-  const loadPantryData = async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase
-        .from('pantry_items')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      if (data) {
-        const itemsWithQuantity = data.map(item => ({ ...item, quantity: item.quantity || '1' }));
-        setPantryItems(itemsWithQuantity);
-        onPantryChange(itemsWithQuantity);
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to load pantry items", variant: "destructive" });
-    }
-  };
-
-  const addPantryItem = async () => {
-    if (!user || !newPantryItem.name.trim()) return;
-    setLoading(true);
-    try {
-      await supabase
-        .from('pantry_items')
-        .insert({
-          user_id: user.id,
-          ingredient_name: newPantryItem.name.trim(),
-          quantity: newPantryItem.quantity || '1',
-          expiry_date: newPantryItem.expiry || null,
-        });
-      setNewPantryItem({ name: '', quantity: '', expiry: '' });
-      await loadPantryData();
-      toast({ title: "Success", description: "Ingredient added to pantry" });
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to add ingredient", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const updatePantryItemQuantity = async (id: string, newQuantity: number) => {
-    if (newQuantity <= 0) {
-      await removePantryItem(id);
-      return;
-    }
-    try {
-      await supabase.from('pantry_items').update({ quantity: newQuantity.toString() }).eq('id', id);
-      await loadPantryData();
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to update quantity", variant: "destructive" });
-    }
-  };
-
-  const removePantryItem = async (id: string) => {
-    try {
-      await supabase.from('pantry_items').delete().eq('id', id);
-      await loadPantryData();
-      toast({ title: "Success", description: "Ingredient removed" });
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to remove ingredient", variant: "destructive" });
-    }
+  const handleAdd = async () => {
+    await onAddItem(newPantryItem);
+    setNewPantryItem({ name: '', quantity: '', expiry: '' });
   };
 
   return (
@@ -136,7 +67,7 @@ export const PantryManager = ({ onPantryChange }: PantryManagerProps) => {
               />
             </div>
             <div className="flex items-end">
-              <Button onClick={addPantryItem} disabled={loading || !newPantryItem.name.trim()}>
+              <Button onClick={handleAdd} disabled={loading || !newPantryItem.name.trim()}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add
               </Button>
@@ -145,22 +76,22 @@ export const PantryManager = ({ onPantryChange }: PantryManagerProps) => {
         </div>
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">Current Pantry Items</h3>
-          {pantryItems.length === 0 ? (
+          {items.length === 0 ? (
             <p className="text-muted-foreground">No pantry items yet. Add some ingredients above!</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pantryItems.map((item) => (
+              {items.map((item) => (
                 <div key={item.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                   <p className="font-medium">{item.ingredient_name}</p>
                   <div className="flex items-center gap-2">
-                    <Button size="icon" variant="ghost" onClick={() => updatePantryItemQuantity(item.id, parseInt(item.quantity) - 1)}>
+                    <Button size="icon" variant="ghost" onClick={() => onUpdateItemQuantity(item.id, parseInt(item.quantity) - 1)}>
                       <Minus className="w-4 h-4" />
                     </Button>
                     <span>{item.quantity}</span>
-                    <Button size="icon" variant="ghost" onClick={() => updatePantryItemQuantity(item.id, parseInt(item.quantity) + 1)}>
+                    <Button size="icon" variant="ghost" onClick={() => onUpdateItemQuantity(item.id, parseInt(item.quantity) + 1)}>
                       <Plus className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => removePantryItem(item.id)} disabled={loading}>
+                    <Button variant="ghost" size="sm" onClick={() => onRemoveItem(item.id)} disabled={loading}>
                       <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
                   </div>

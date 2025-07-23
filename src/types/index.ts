@@ -21,3 +21,10 @@ export interface MealDay {
   total_time_to_cook: string;
   cooking_tips?: string;
 }
+
+export interface PantryItem {
+  id: string;
+  ingredient_name: string;
+  quantity?: string;
+  expiry_date?: string;
+}

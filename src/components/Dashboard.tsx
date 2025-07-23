@@ -10,6 +10,7 @@ import { RecipeModal } from "./RecipeModal";
 import { PantryManager } from "./PantryManager";
 import { ProfileModal } from "./ProfileModal";
 import { SavedRecipes } from "./SavedRecipes";
+import { parseIngredient } from "parse-ingredient";
 import { Loader2, Download, RefreshCw, Star } from "lucide-react";
 import { MealDay } from "@/types";
 
@@ -31,7 +32,7 @@ interface SubscriptionStatus {
 interface PantryItem {
   id: string;
   ingredient_name: string;
-  quantity?: string;
+  quantity: string;
   expiry_date?: string;
 }
 
@@ -52,6 +53,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [pantryLoading, setPantryLoading] = useState(false);
 
   const checkSubscription = useCallback(async () => {
     if (!session) return;
@@ -64,11 +66,34 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   }, [session]);
 
-  const loadData = useCallback(async () => {
+  const loadPantryData = useCallback(async () => {
+    if (!user) return;
+    setPantryLoading(true);
+    try {
+      const { data: pantryData, error: pantryError } = await supabase
+        .from('pantry_items')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (pantryError) throw pantryError;
+      if (pantryData) {
+        const itemsWithQuantity = pantryData.map(item => ({ ...item, quantity: item.quantity || '1' }));
+        setPantryItems(itemsWithQuantity);
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to load pantry items.", variant: "destructive" });
+    } finally {
+      setPantryLoading(false);
+    }
+  }, [user, toast]);
+
+  const loadInitialData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
       await checkSubscription();
+      await loadPantryData();
 
       const { data: mealHistory, error: mealError } = await supabase
         .from('user_meal_history')
@@ -122,19 +147,18 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
       } else {
           setShoppingList([]);
       }
-
     } catch (error) {
         console.error('Error loading initial data:', error);
     } finally {
         setLoading(false);
     }
-  }, [user, checkSubscription]);
+  }, [user, checkSubscription, loadPantryData]);
 
   useEffect(() => {
     if (user) {
-      loadData();
+      loadInitialData();
     }
-  }, [user, loadData]);
+  }, [user, loadInitialData]);
 
   const generateMealPlan = async () => {
     if (!session?.access_token) {
@@ -172,8 +196,6 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     
     setIsDownloading(true);
     try {
-      // --- THIS IS THE FIX ---
-      // Convert the shopping list object to an array before sending
       const shoppingListForPDF = Array.isArray(shoppingList) 
         ? shoppingList 
         : Object.entries(shoppingList).map(([category, items]) => ({ category, items: items as string[] }));
@@ -197,7 +219,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
           total_time_to_cook: meal.total_time_to_cook,
           cooking_tips: meal.cooking_tips,
         })),
-        shoppingList: shoppingListForPDF, // Use the formatted list
+        shoppingList: shoppingListForPDF,
       };
 
       const { data, error } = await supabase.functions.invoke('generate-pdf', {
@@ -228,20 +250,81 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   };
 
+  const addPantryItem = async (item: { name: string; quantity: string; expiry: string }) => {
+    if (!user || !item.name.trim()) return;
+    setPantryLoading(true);
+    try {
+      await supabase
+        .from('pantry_items')
+        .insert({
+          user_id: user.id,
+          ingredient_name: item.name.trim(),
+          quantity: item.quantity || '1',
+          expiry_date: item.expiry || null,
+        });
+      await loadPantryData();
+      toast({ title: "Success", description: "Ingredient added to pantry" });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to add ingredient", variant: "destructive" });
+    } finally {
+      setPantryLoading(false);
+    }
+  };
+
+  const updatePantryItemQuantity = async (id: string, newQuantity: number) => {
+    if (newQuantity <= 0) {
+      await removePantryItem(id);
+      return;
+    }
+    setPantryLoading(true);
+    try {
+      await supabase.from('pantry_items').update({ quantity: newQuantity.toString() }).eq('id', id);
+      await loadPantryData();
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to update quantity", variant: "destructive" });
+    } finally {
+      setPantryLoading(false);
+    }
+  };
+
+  const removePantryItem = async (id: string) => {
+    setPantryLoading(true);
+    try {
+      await supabase.from('pantry_items').delete().eq('id', id);
+      await loadPantryData();
+      toast({ title: "Success", description: "Ingredient removed" });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to remove ingredient", variant: "destructive" });
+    } finally {
+      setPantryLoading(false);
+    }
+  };
+
   const adjustedShoppingList = useMemo(() => {
-    if (pantryItems.length === 0) {
-      return shoppingList;
+    if (!shoppingList || shoppingList.length === 0) {
+      return [];
     }
 
-    const pantryIngredientNames = new Set(pantryItems.map(item => item.ingredient_name.toLowerCase()));
+    const pantryIngredientNames = pantryItems.map(item => item.ingredient_name.toLowerCase().trim());
 
-    return shoppingList.map(category => {
+    const adjustedList = shoppingList.map(category => {
+      if (!category.items || !Array.isArray(category.items)) {
+        return { ...category, items: [] };
+      }
+      
       const newItems = category.items.filter(item => {
-        const itemName = item.split('(')[0].trim().toLowerCase();
-        return !pantryIngredientNames.has(itemName);
+        const cleanItemName = item.toLowerCase().trim();
+        
+        // Check if any pantry item is a substring of the shopping list item
+        const foundInPantry = pantryIngredientNames.some(pantryItem => cleanItemName.includes(pantryItem));
+        
+        return !foundInPantry;
       });
+      
       return { ...category, items: newItems };
     });
+
+    return adjustedList.filter(category => category.items.length > 0);
   }, [shoppingList, pantryItems]);
   
   return (
@@ -364,7 +447,13 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
           </TabsContent>
 
           <TabsContent value="pantry" className="mt-6">
-            <PantryManager onPantryChange={setPantryItems} />
+            <PantryManager 
+              items={pantryItems}
+              onAddItem={addPantryItem}
+              onUpdateItemQuantity={updatePantryItemQuantity}
+              onRemoveItem={removePantryItem}
+              loading={pantryLoading}
+            />
           </TabsContent>
 
           <TabsContent value="saved" className="mt-6">
