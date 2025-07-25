@@ -314,6 +314,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
 
   const [storedShoppingList, setStoredShoppingList] = useState<any>(null);
   const [shoppingListLoading, setShoppingListLoading] = useState(false);
+  const [refreshingShoppingList, setRefreshingShoppingList] = useState(false);
 
   // Load stored shopping list from database
   const loadStoredShoppingList = async () => {
@@ -338,6 +339,80 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
       console.error('Error loading shopping list:', error);
     } finally {
       setShoppingListLoading(false);
+    }
+  };
+
+  // Refresh shopping list based on current pantry items
+  const refreshShoppingList = async () => {
+    if (!user || !weeklyPlan || weeklyPlan.length === 0) {
+      toast({ title: "Error", description: "No meal plan found. Please generate a meal plan first.", variant: "destructive" });
+      return;
+    }
+
+    setRefreshingShoppingList(true);
+    try {
+      // Extract ingredients from current meal plan
+      const allIngredients: string[] = [];
+      
+      weeklyPlan.forEach(mealDay => {
+        if (mealDay.main_dish?.ingredients) {
+          allIngredients.push(mealDay.main_dish.ingredients);
+        }
+        if (mealDay.side_dish?.ingredients) {
+          allIngredients.push(mealDay.side_dish.ingredients);
+        }
+      });
+
+      // Format pantry items for the process-shopping-list function
+      const pantryItemsFormatted = pantryItems.map(item => ({
+        ingredient_name: item.ingredient_name,
+        quantity: item.quantity || '1'
+      }));
+
+      // Call the process-shopping-list function
+      const { data: processedList, error: processError } = await supabase.functions.invoke('process-shopping-list', {
+        body: {
+          ingredients: allIngredients,
+          pantryItems: pantryItemsFormatted
+        }
+      });
+
+      if (processError) {
+        throw new Error(`Failed to process shopping list: ${processError.message}`);
+      }
+
+      // Update the shopping list in the database
+      const weekStartDate = new Date().toISOString().split('T')[0];
+      const { error: updateError } = await supabase
+        .from('shopping_lists')
+        .upsert({
+          user_id: user.id,
+          week_start_date: weekStartDate,
+          shopping_list: processedList?.categorizedList || {},
+          ai_processed_ingredients: processedList?.ingredients || []
+        }, { onConflict: 'user_id,week_start_date' });
+
+      if (updateError) {
+        throw new Error('Failed to save updated shopping list');
+      }
+
+      // Reload the shopping list
+      await loadStoredShoppingList();
+      
+      toast({ 
+        title: "Success!", 
+        description: "Shopping list updated based on current pantry items." 
+      });
+
+    } catch (error) {
+      console.error('Error refreshing shopping list:', error);
+      toast({ 
+        title: "Error", 
+        description: error instanceof Error ? error.message : "Failed to refresh shopping list", 
+        variant: "destructive" 
+      });
+    } finally {
+      setRefreshingShoppingList(false);
     }
   };
 
@@ -502,21 +577,32 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
           </TabsContent>
           
           <TabsContent value="shopping" className="space-y-6 mt-6">
-             <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle>Shopping List</CardTitle>
-                        {shoppingListBudget && (
-                            <CardDescription>
-                                Estimated Cost: {shoppingListBudget}
-                            </CardDescription>
-                        )}
-                    </div>
-                    <Button onClick={() => downloadPDF('shopping')} disabled={isDownloading || loading || adjustedShoppingList.length === 0} variant="outline">
-                        {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                        Print List
-                    </Button>
-                </CardHeader>
+              <Card>
+                 <CardHeader className="flex flex-row items-center justify-between">
+                     <div>
+                         <CardTitle>Shopping List</CardTitle>
+                         {shoppingListBudget && (
+                             <CardDescription>
+                                 Estimated Cost: {shoppingListBudget}
+                             </CardDescription>
+                         )}
+                     </div>
+                     <div className="flex gap-2">
+                         <Button 
+                             onClick={refreshShoppingList} 
+                             disabled={refreshingShoppingList || loading || weeklyPlan.length === 0} 
+                             variant="outline"
+                             size="sm"
+                         >
+                             {refreshingShoppingList ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                             Refresh
+                         </Button>
+                         <Button onClick={() => downloadPDF('shopping')} disabled={isDownloading || loading || adjustedShoppingList.length === 0} variant="outline">
+                             {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                             Print List
+                         </Button>
+                     </div>
+                 </CardHeader>
                 <CardContent>
                     {(loading || shoppingListLoading) ? (
                         <div className="text-center p-4">
