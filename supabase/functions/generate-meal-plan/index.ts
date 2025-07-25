@@ -46,13 +46,16 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 serve(async (req) => {
   console.log('=== MEAL PLAN GENERATION START ===');
-  console.log('Environment check:', {
+  
+  // Check environment variables
+  const envCheck = {
     hasSupabaseUrl: !!supabaseUrl,
     hasServiceKey: !!supabaseServiceKey,
     hasOpenAI: !!openAIApiKey,
     hasSpoonacular: !!spoonacularApiKey,
     spoonacularKeyLength: spoonacularApiKey?.length || 0
-  });
+  };
+  console.log('Environment check:', envCheck);
   
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -540,8 +543,9 @@ async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pant
     quantity: item.quantity || '1'
   })) || [];
 
-  // Call the process-shopping-list function
+  // Try to call the process-shopping-list function, but use fallback if it fails
   try {
+    console.log('🚀 Calling process-shopping-list function...');
     const { data: processedList, error: processError } = await supabase.functions.invoke('process-shopping-list', {
       body: {
         ingredients: allIngredients,
@@ -550,12 +554,14 @@ async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pant
     });
 
     if (processError) {
+      console.error('❌ Process shopping list function error:', processError);
       throw new Error(`Process shopping list error: ${processError.message}`);
     }
 
-    console.log('Successfully processed shopping list with', processedList?.ingredients?.length || 0, 'ingredients');
+    console.log('✅ Successfully processed shopping list with OpenAI processing');
+    console.log('Processed ingredients count:', processedList?.ingredients?.length || 0);
 
-    // Save shopping list
+    // Save shopping list with AI processing
     const { error: shoppingError } = await supabase
       .from('shopping_lists')
       .upsert({
@@ -566,16 +572,20 @@ async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pant
       }, { onConflict: 'user_id,week_start_date' });
 
     if (shoppingError) {
-      console.error('Error saving shopping list:', shoppingError);
+      console.error('Error saving AI-processed shopping list:', shoppingError);
       throw new Error('Failed to save shopping list');
     }
 
-    console.log('Successfully saved shopping list to database');
+    console.log('✅ Successfully saved AI-processed shopping list to database');
 
   } catch (error) {
-    console.error('Error processing shopping list:', error);
-    // Fallback to simple processing if the function call fails
-    const processedIngredients = processIngredientsForShopping(allIngredients.join('\n').split('\n'), pantryItems);
+    console.error('❌ AI processing failed, falling back to basic processing:', error);
+    
+    // Fallback to simple processing
+    const flatIngredients = allIngredients.join('\n').split('\n').filter(ing => ing.trim());
+    const processedIngredients = processIngredientsForShopping(flatIngredients, pantryItems);
+    
+    console.log('🔄 Using fallback processing, found:', processedIngredients.ingredients.length, 'items');
     
     const { error: shoppingError } = await supabase
       .from('shopping_lists')
@@ -587,11 +597,11 @@ async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pant
       }, { onConflict: 'user_id,week_start_date' });
 
     if (shoppingError) {
-      console.error('Error saving fallback shopping list:', shoppingError);
+      console.error('❌ Error saving fallback shopping list:', shoppingError);
       throw new Error('Failed to save shopping list');
     }
 
-    console.log('Saved fallback shopping list to database');
+    console.log('✅ Successfully saved fallback shopping list to database');
   }
 }
 
