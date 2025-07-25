@@ -45,6 +45,15 @@ console.log('Environment check:', {
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 serve(async (req) => {
+  console.log('=== MEAL PLAN GENERATION START ===');
+  console.log('Environment check:', {
+    hasSupabaseUrl: !!supabaseUrl,
+    hasServiceKey: !!supabaseServiceKey,
+    hasOpenAI: !!openAIApiKey,
+    hasSpoonacular: !!spoonacularApiKey,
+    spoonacularKeyLength: spoonacularApiKey?.length || 0
+  });
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
