@@ -1,561 +1,554 @@
-import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-
-// --- START: UTILITIES ---
-// Moved from _shared/utils.ts to resolve import error
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-function log(level: "INFO" | "ERROR", message: string, data: Record<string, unknown> = {}) {
-    console.log(JSON.stringify({
-        level,
-        message,
-        ...data,
-        timestamp: new Date().toISOString()
-    }));
-}
-
-// --- END: UTILITIES ---
-
-
-// --- START: TYPE DEFINITIONS ---
-
-interface Recipe {
-  title: string;
-  description: string;
-  ingredients: string[];
-  recipe: string;
-  calories: number;
-  created_by_user: string;
-}
-
-interface MealDay {
+interface MealConcept {
   day: string;
-  main_dish: Recipe;
-  side_dish?: Recipe | null;
-  total_time_to_cook: string;
-  cooking_tips?: string;
+  main_dish_concept: string;
+  side_dish_concept?: string;
+  cuisine: string;
+  diet_restrictions?: string[];
 }
 
-interface MealPlanResponse {
-  days: MealDay[];
-  shopping_list: { category: string; items: string[] }[];
+interface SpoonacularRecipe {
+  id: number;
+  title: string;
+  image: string;
+  readyInMinutes: number;
+  servings: number;
+  sourceUrl: string;
+  analyzedInstructions: any[];
+  extendedIngredients: any[];
+  nutrition?: any;
+  pricePerServing?: number;
+  healthScore?: number;
 }
 
-interface MealPlanRequest {
-  userId: string;
-  pantryItems: string[];
-  dietaryPreferences: string;
-  cookTime: string;
-}
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const spoonacularApiKey = Deno.env.get('SPOONACULAR_API_KEY')!;
 
-interface MealHistoryDay {
-    day: string;
-    main_dish_id: string;
-    side_dish_id: string | null;
-    total_time_to_cook: string;
-    cooking_tips?: string;
-}
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// --- END: TYPE DEFINITIONS ---
-
-async function generateMealPlan(pantryItems: string[], dietaryPreferences: string, cookTime: string): Promise<MealDay[]> {
-  const openAIApiKey = Deno.env.get("OPENAI_API_KEY");
-  const prompt = `
-    Generate a 7-day meal plan based on the following criteria:
-    - Pantry items available: ${pantryItems.join(", ")}
-    - Dietary preferences: ${dietaryPreferences}
-    - Maximum cooking time per meal: ${cookTime}
-    
-    For each day, provide a main dish, an optional side dish, the total cooking time, and helpful cooking tips for the day's meal.
-    For each dish, include a title, a brief description, a list of ingredients, a step-by-step recipe, and approximate calories.
-    Ensure the response contains a complete 7-day plan.
-
-    Return the response as a valid JSON object in the following structure: 
-    {
-      "days": [
-        {
-          "day": "Monday",
-          "main_dish": {"title": "...", "description": "...", "ingredients": ["..."], "recipe": "...", "calories": 0},
-          "side_dish": {"title": "...", "description": "...", "ingredients": ["..."], "recipe": "...", "calories": 0},
-          "total_time_to_cook": "...",
-          "cooking_tips": "..."
-        }
-      ]
-    }
-  `;
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${openAIApiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4-turbo-preview",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-    }),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    log("ERROR", "OpenAI API request failed.", { status: response.status, body: errorBody });
-    throw new Error("Failed to fetch meal plan from OpenAI.");
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
   }
-
-  const data = await response.json();
-  const rawContent = data.choices[0].message.content;
-  log("INFO", "Received raw content from OpenAI.", { rawContent });
 
   try {
-    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("No JSON object found in the response from OpenAI.");
+    const authHeader = req.headers.get('Authorization')!;
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error('Authentication error:', authError);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
-    
-    const mealPlan = JSON.parse(jsonMatch[0]);
-    return mealPlan.days;
+
+    console.log('Starting meal plan generation for user:', user.id);
+
+    // Get user profile for preferences
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .single();
+
+    if (!profile) {
+      console.error('No profile found for user');
+      return new Response(JSON.stringify({ error: 'Profile not found' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Get pantry items and disliked ingredients
+    const [pantryResponse, dislikesResponse] = await Promise.all([
+      supabase.from('pantry_items').select('ingredient_name').eq('user_id', user.id),
+      supabase.from('disliked_ingredients').select('ingredient_name').eq('user_id', user.id)
+    ]);
+
+    const pantryItems = pantryResponse.data?.map(item => item.ingredient_name) || [];
+    const dislikedIngredients = dislikesResponse.data?.map(item => item.ingredient_name) || [];
+
+    console.log('User preferences loaded:', { 
+      pantryItems: pantryItems.length, 
+      dislikedIngredients: dislikedIngredients.length 
+    });
+
+    // Step 1: Generate meal concepts with AI
+    const mealConcepts = await generateMealConcepts(profile, pantryItems, dislikedIngredients);
+    console.log('Generated meal concepts:', mealConcepts.length);
+
+    // Step 2: Search Spoonacular for matching recipes
+    const spoonacularMatches = await findSpoonacularMatches(mealConcepts, profile, dislikedIngredients);
+    console.log('Found Spoonacular matches:', spoonacularMatches.length);
+
+    // Step 3: Fill gaps with AI-generated recipes
+    const completeMealPlan = await fillMealPlanGaps(mealConcepts, spoonacularMatches, profile, pantryItems, dislikedIngredients);
+    console.log('Complete meal plan generated with', completeMealPlan.length, 'days');
+
+    // Step 4: Save meal plan to database
+    await saveMealPlanToDatabase(user.id, completeMealPlan);
+
+    // Step 5: Generate and save shopping list
+    await generateAndSaveShoppingList(user.id, completeMealPlan, pantryItems);
+
+    console.log('Meal plan generation completed successfully');
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: 'Meal plan generated successfully',
+      mealPlan: completeMealPlan
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
   } catch (error) {
-    log("ERROR", "Failed to parse meal plan from OpenAI.", { error: error.message, content: rawContent });
-    throw new Error("Failed to parse meal plan from OpenAI.");
+    console.error('Error in generate-meal-plan function:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+});
+
+async function generateMealConcepts(profile: any, pantryItems: string[], dislikedIngredients: string[]): Promise<MealConcept[]> {
+  if (!openAIApiKey) {
+    console.log('No OpenAI API key, using fallback meal concepts');
+    return getFallbackMealConcepts();
+  }
+
+  const prompt = `Generate 7 days of meal concepts based on these preferences:
+- Cuisine preferences: ${profile.cuisine_preferences?.join(', ') || 'any'}
+- Dietary restrictions: ${profile.dietary_restrictions?.join(', ') || 'none'}
+- Cooking time: ${profile.cooking_time || '30 minutes'}
+- Budget: ${profile.budget || 'moderate'}
+- Health goals: ${profile.health_goals || 'balanced'}
+- Available ingredients: ${pantryItems.slice(0, 10).join(', ')}
+- Avoid these ingredients: ${dislikedIngredients.join(', ')}
+
+Return ONLY a JSON array with 7 objects, each containing:
+{
+  "day": "Monday/Tuesday/etc",
+  "main_dish_concept": "brief description of main dish",
+  "side_dish_concept": "brief description of side dish (optional)",
+  "cuisine": "cuisine type",
+  "diet_restrictions": ["any dietary restrictions"]
+}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+      }),
+    });
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    
+    // Clean the JSON response
+    const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+    return JSON.parse(cleanContent);
+  } catch (error) {
+    console.error('Error generating meal concepts:', error);
+    return getFallbackMealConcepts();
   }
 }
 
-async function saveOrGetRecipe(supabaseClient: SupabaseClient, dish: Recipe, userId: string): Promise<string> {
-    if (!dish || !dish.title) {
-        log("ERROR", "Invalid dish object provided. Skipping.", { dish });
-        return '00000000-0000-0000-0000-000000000000';
-    }
-
-    const { data: existingRecipe, error: selectError } = await supabaseClient
-        .from('recipes')
-        .select('id')
-        .eq('title', dish.title)
-        .maybeSingle();
-    
-    if (selectError) {
-        log("ERROR", "Error checking for existing recipe.", { error: selectError });
-        throw selectError;
-    }
-
-    if (existingRecipe) {
-        return existingRecipe.id;
-    }
-
-    const { data: newRecipe, error: insertError } = await supabaseClient
-        .from('recipes')
-        .insert({
-            title: dish.title,
-            description: dish.description,
-            ingredients: dish.ingredients.join('\n'),
-            recipe: dish.recipe,
-            calories: dish.calories,
-            created_by_user: userId,
-        })
-        .select('id')
-        .single();
-        
-    if (insertError) {
-        log("ERROR", "Failed to insert new recipe.", { error: insertError });
-        throw insertError;
-    }
-    if (!newRecipe) {
-        throw new Error("Failed to create new recipe and retrieve its ID.");
-    }
+async function findSpoonacularMatches(concepts: MealConcept[], profile: any, dislikedIngredients: string[]): Promise<{ concept: MealConcept, recipe: SpoonacularRecipe, isMainDish: boolean }[]> {
+  const matches: { concept: MealConcept, recipe: SpoonacularRecipe, isMainDish: boolean }[] = [];
   
-    return newRecipe.id;
+  for (const concept of concepts) {
+    // Search for main dish
+    const mainDish = await searchSpoonacularRecipe(
+      concept.main_dish_concept, 
+      concept.cuisine, 
+      profile.dietary_restrictions,
+      dislikedIngredients
+    );
+    
+    if (mainDish) {
+      matches.push({ concept, recipe: mainDish, isMainDish: true });
+    }
+
+    // Search for side dish if specified
+    if (concept.side_dish_concept) {
+      const sideDish = await searchSpoonacularRecipe(
+        concept.side_dish_concept, 
+        concept.cuisine, 
+        profile.dietary_restrictions,
+        dislikedIngredients
+      );
+      
+      if (sideDish) {
+        matches.push({ concept, recipe: sideDish, isMainDish: false });
+      }
+    }
+  }
+
+  return matches;
 }
 
-async function generateShoppingListWithAI(mealPlan: MealDay[], supabaseClient: SupabaseClient, userId: string): Promise<void> {
-    log("INFO", "Starting shopping list generation...");
+async function searchSpoonacularRecipe(
+  dishConcept: string, 
+  cuisine: string, 
+  dietaryRestrictions: string[] = [],
+  dislikedIngredients: string[] = []
+): Promise<SpoonacularRecipe | null> {
+  try {
+    const excludeIngredients = dislikedIngredients.join(',');
+    const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
     
-    const openAIApiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openAIApiKey) {
-        log("ERROR", "OpenAI API key not configured for shopping list generation - using fallback");
-        await generateFallbackShoppingList(mealPlan, supabaseClient, userId);
-        return;
+    const searchUrl = `https://api.spoonacular.com/recipes/complexSearch?` +
+      `apiKey=${spoonacularApiKey}&` +
+      `query=${encodeURIComponent(dishConcept)}&` +
+      `cuisine=${encodeURIComponent(cuisine)}&` +
+      `diet=${encodeURIComponent(diet)}&` +
+      `excludeIngredients=${encodeURIComponent(excludeIngredients)}&` +
+      `number=1&` +
+      `addRecipeInformation=true&` +
+      `addRecipeInstructions=true&` +
+      `addRecipeNutrition=true`;
+
+    const response = await fetch(searchUrl);
+    const data = await response.json();
+
+    if (data.results && data.results.length > 0) {
+      return data.results[0];
     }
 
-    // Collect all ingredients from meal plan
-    const allIngredients: string[] = [];
-    mealPlan.forEach(day => {
-        // Handle main dish ingredients
-        if (day.main_dish?.ingredients) {
-            if (Array.isArray(day.main_dish.ingredients)) {
-                allIngredients.push(...day.main_dish.ingredients);
-            } else {
-                allIngredients.push(day.main_dish.ingredients);
-            }
-        }
-        // Handle side dish ingredients
-        if (day.side_dish?.ingredients) {
-            if (Array.isArray(day.side_dish.ingredients)) {
-                allIngredients.push(...day.side_dish.ingredients);
-            } else {
-                allIngredients.push(day.side_dish.ingredients);
-            }
-        }
+    return null;
+  } catch (error) {
+    console.error('Error searching Spoonacular:', error);
+    return null;
+  }
+}
+
+async function fillMealPlanGaps(
+  concepts: MealConcept[], 
+  spoonacularMatches: { concept: MealConcept, recipe: SpoonacularRecipe, isMainDish: boolean }[],
+  profile: any,
+  pantryItems: string[],
+  dislikedIngredients: string[]
+): Promise<any[]> {
+  const mealPlan = [];
+
+  for (const concept of concepts) {
+    const mainMatch = spoonacularMatches.find(m => m.concept.day === concept.day && m.isMainDish);
+    const sideMatch = spoonacularMatches.find(m => m.concept.day === concept.day && !m.isMainDish);
+
+    let mainDish, sideDish;
+
+    if (mainMatch) {
+      // Use Spoonacular recipe
+      mainDish = await convertSpoonacularToRecipe(mainMatch.recipe, true);
+    } else {
+      // Generate with AI
+      mainDish = await generateAIRecipe(concept.main_dish_concept, concept, pantryItems, dislikedIngredients);
+    }
+
+    if (concept.side_dish_concept) {
+      if (sideMatch) {
+        sideDish = await convertSpoonacularToRecipe(sideMatch.recipe, false);
+      } else {
+        sideDish = await generateAIRecipe(concept.side_dish_concept, concept, pantryItems, dislikedIngredients);
+      }
+    }
+
+    mealPlan.push({
+      day: concept.day,
+      main_dish: mainDish,
+      side_dish: sideDish,
+      total_time_to_cook: calculateTotalTime(mainDish, sideDish),
+      cooking_tips: `${concept.cuisine} cuisine. ${mainDish.source_type === 'spoonacular' ? 'Recipe from Spoonacular.' : 'AI-generated recipe.'}`
     });
+  }
 
-    if (allIngredients.length === 0) {
-        log("ERROR", "No ingredients found in meal plan");
-        return;
-    }
+  return mealPlan;
+}
 
-    log("INFO", "All ingredients for shopping list:", { allIngredients, count: allIngredients.length });
+async function convertSpoonacularToRecipe(spoonacularRecipe: SpoonacularRecipe, isMainDish: boolean): Promise<any> {
+  // Convert Spoonacular ingredients to string format
+  const ingredients = spoonacularRecipe.extendedIngredients
+    ?.map(ing => `${ing.amount} ${ing.unit} ${ing.name}`)
+    .join('\n') || '';
 
-    const prompt = `You are a smart shopping list assistant. Please process this list of ingredients from a weekly meal plan and create a clean, aggregated shopping list.
+  // Convert instructions to string format
+  const instructions = spoonacularRecipe.analyzedInstructions?.[0]?.steps
+    ?.map((step: any, index: number) => `${index + 1}. ${step.step}`)
+    .join('\n') || '';
 
-Ingredients from recipes:
-${allIngredients.join('\n')}
+  const recipe = {
+    id: crypto.randomUUID(),
+    title: spoonacularRecipe.title,
+    description: `Delicious ${spoonacularRecipe.title.toLowerCase()} recipe from Spoonacular.`,
+    ingredients,
+    recipe: instructions,
+    calories: Math.round((spoonacularRecipe.nutrition?.nutrients?.find((n: any) => n.name === 'Calories')?.amount || 400) * (isMainDish ? 1 : 0.5)),
+    servings: spoonacularRecipe.servings,
+    spoonacular_id: spoonacularRecipe.id,
+    image_url: spoonacularRecipe.image,
+    source_url: spoonacularRecipe.sourceUrl,
+    ready_in_minutes: spoonacularRecipe.readyInMinutes,
+    health_score: spoonacularRecipe.healthScore,
+    price_per_serving: spoonacularRecipe.pricePerServing,
+    nutrition: spoonacularRecipe.nutrition,
+    source_type: 'spoonacular' as const
+  };
 
-Please:
-1. Parse and normalize all ingredients
-2. Aggregate quantities of the same items (e.g., "2 avocados" + "3 avocado" = "5 avocados")
-3. Use proper plural/singular forms
-4. Make vague items more specific (e.g., "1 cheese" → "8 oz cheddar cheese")
-5. Convert weird formats to common vernacular (e.g., "Juice of 1 Lemon" → "1 lemon (for juice)")
-6. Categorize into: Produce, Meat & Seafood, Dairy & Eggs, Grains & Bakery, Pantry Staples, Canned/Packaged, Other
-7. Estimate realistic grocery store prices in USD
+  return recipe;
+}
 
-Return a JSON object in this exact format:
+async function generateAIRecipe(dishConcept: string, concept: MealConcept, pantryItems: string[], dislikedIngredients: string[]): Promise<any> {
+  if (!openAIApiKey) {
+    return getFallbackRecipe(dishConcept, concept);
+  }
+
+  const prompt = `Create a detailed recipe for: ${dishConcept}
+Cuisine: ${concept.cuisine}
+Diet restrictions: ${concept.diet_restrictions?.join(', ') || 'none'}
+Try to use these available ingredients: ${pantryItems.slice(0, 5).join(', ')}
+Avoid these ingredients: ${dislikedIngredients.join(', ')}
+
+Return ONLY a JSON object with:
 {
-  "ingredients": [
-    {
-      "name": "avocados",
-      "quantity": "5",
-      "category": "Produce", 
-      "estimatedPrice": 7.50
-    }
-  ],
-  "totalEstimatedCost": 85.25
+  "title": "Recipe name",
+  "description": "Brief description",
+  "ingredients": "Ingredient list as formatted string with quantities",
+  "recipe": "Step-by-step instructions as formatted string",
+  "calories": number (realistic estimate)
+}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+      }),
+    });
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+    const aiRecipe = JSON.parse(cleanContent);
+
+    return {
+      id: crypto.randomUUID(),
+      source_type: 'ai' as const,
+      ...aiRecipe
+    };
+  } catch (error) {
+    console.error('Error generating AI recipe:', error);
+    return getFallbackRecipe(dishConcept, concept);
+  }
 }
 
-Make sure quantities are reasonable, names are clear, and prices reflect typical US grocery store costs.`;
-
-    try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${openAIApiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: 'You are a helpful grocery shopping assistant that creates clean, organized shopping lists.' },
-                    { role: 'user', content: prompt }
-                ],
-                temperature: 0.1,
-            }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`OpenAI API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const content = data.choices[0].message.content;
-        
-        let parsedResult;
-        try {
-            parsedResult = JSON.parse(content);
-        } catch (e) {
-            log("ERROR", "Failed to parse OpenAI shopping list response", { content });
-            throw new Error('Invalid response format from OpenAI');
-        }
-
-        // Categorize ingredients for storage
-        const categorizedList: Record<string, any[]> = {};
-        parsedResult.ingredients.forEach((ingredient: any) => {
-            if (!categorizedList[ingredient.category]) {
-                categorizedList[ingredient.category] = [];
-            }
-            categorizedList[ingredient.category].push({
-                name: ingredient.name,
-                quantity: ingredient.quantity,
-                estimatedPrice: ingredient.estimatedPrice
-            });
-        });
-
-        // Save to shopping_lists table
-        const weekStartDate = new Date().toISOString().split('T')[0];
-        const shoppingListData = {
-            user_id: userId,
-            week_start_date: weekStartDate,
-            shopping_list: Object.entries(categorizedList).map(([category, items]) => ({
-                category,
-                items: items.map(item => `${item.quantity} ${item.name}`)
-            })),
-            budget: `$${Math.round(parsedResult.totalEstimatedCost)}`,
-            ai_processed_ingredients: parsedResult.ingredients
-        };
-
-        // Delete old shopping list for this week
-        await supabaseClient
-            .from('shopping_lists')
-            .delete()
-            .eq('user_id', userId)
-            .eq('week_start_date', weekStartDate);
-
-        // Insert new shopping list
-        const { error: insertError } = await supabaseClient
-            .from('shopping_lists')
-            .insert(shoppingListData);
-
-        if (insertError) {
-            log("ERROR", "Failed to save shopping list", { error: insertError });
-            throw insertError;
-        }
-
-        log("INFO", "Shopping list saved successfully", { userId, totalCost: parsedResult.totalEstimatedCost });
-
-    } catch (error) {
-        log("ERROR", "Error generating shopping list with AI", { error });
-        throw error;
+async function saveMealPlanToDatabase(userId: string, mealPlan: any[]): Promise<void> {
+  // Save recipes first
+  const recipesToSave = [];
+  for (const day of mealPlan) {
+    recipesToSave.push(day.main_dish);
+    if (day.side_dish) {
+      recipesToSave.push(day.side_dish);
     }
-}
+  }
 
-async function generateFallbackShoppingList(mealPlan: MealDay[], supabaseClient: SupabaseClient, userId: string): Promise<void> {
-    log("INFO", "Generating fallback shopping list...");
+  // Insert recipes
+  const { error: recipeError } = await supabase
+    .from('recipes')
+    .upsert(recipesToSave.map(recipe => ({
+      id: recipe.id,
+      title: recipe.title,
+      description: recipe.description,
+      ingredients: recipe.ingredients,
+      recipe: recipe.recipe,
+      calories: recipe.calories,
+      servings: recipe.servings,
+      spoonacular_id: recipe.spoonacular_id,
+      image_url: recipe.image_url,
+      source_url: recipe.source_url,
+      prep_time: recipe.prep_time,
+      cook_time: recipe.cook_time,
+      ready_in_minutes: recipe.ready_in_minutes,
+      health_score: recipe.health_score,
+      price_per_serving: recipe.price_per_serving,
+      nutrition: recipe.nutrition,
+      source_type: recipe.source_type,
+      created_by_user: userId
+    })), { onConflict: 'id' });
+
+  if (recipeError) {
+    console.error('Error saving recipes:', recipeError);
+    throw new Error('Failed to save recipes');
+  }
+
+  // Save meal history
+  const mealHistoryData = mealPlan.map((day, index) => {
+    const mealDate = new Date();
+    mealDate.setDate(mealDate.getDate() + index);
     
-    // Collect all ingredients from meal plan
-    const allIngredients: string[] = [];
-    mealPlan.forEach(day => {
-        if (day.main_dish?.ingredients) {
-            if (Array.isArray(day.main_dish.ingredients)) {
-                allIngredients.push(...day.main_dish.ingredients);
-            } else {
-                allIngredients.push(day.main_dish.ingredients);
-            }
-        }
-        if (day.side_dish?.ingredients) {
-            if (Array.isArray(day.side_dish.ingredients)) {
-                allIngredients.push(...day.side_dish.ingredients);
-            } else {
-                allIngredients.push(day.side_dish.ingredients);
-            }
-        }
-    });
-
-    // Basic categorization function
-    const categorizeIngredient = (name: string): string => {
-        const lowerName = name.toLowerCase();
-        if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('shrimp')) {
-            return 'Meat & Seafood';
-        }
-        if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('egg')) {
-            return 'Dairy & Eggs';
-        }
-        if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('avocado') || lowerName.includes('garlic') || lowerName.includes('cucumber') || lowerName.includes('lettuce') || lowerName.includes('fruits') || lowerName.includes('lemon') || lowerName.includes('lime')) {
-            return 'Produce';
-        }
-        if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('tortilla')) {
-            return 'Grains & Bakery';
-        }
-        if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('seasoning')) {
-            return 'Pantry Staples';
-        }
-        return 'Other';
+    return {
+      user_id: userId,
+      meal_date: mealDate.toISOString().split('T')[0],
+      main_dish_recipe_id: day.main_dish.id,
+      side_dish_recipe_id: day.side_dish?.id || null,
+      total_time_to_cook: day.total_time_to_cook,
+      cooking_tips: day.cooking_tips
     };
+  });
 
-    // Process ingredients into shopping list format
-    const processedIngredients: any[] = [];
-    const seenIngredients = new Set<string>();
-    let totalCost = 0;
+  const { error: historyError } = await supabase
+    .from('user_meal_history')
+    .upsert(mealHistoryData, { onConflict: 'user_id,meal_date' });
 
-    allIngredients.forEach(ingredient => {
-        const cleanIngredient = ingredient.trim().toLowerCase();
-        if (!cleanIngredient || seenIngredients.has(cleanIngredient)) return;
-        
-        seenIngredients.add(cleanIngredient);
-        const category = categorizeIngredient(cleanIngredient);
-        const estimatedPrice = 2.50; // Basic price estimate
-        
-        processedIngredients.push({
-            name: ingredient.trim(),
-            quantity: "1",
-            category,
-            estimatedPrice
-        });
-        
-        totalCost += estimatedPrice;
-    });
+  if (historyError) {
+    console.error('Error saving meal history:', historyError);
+    throw new Error('Failed to save meal history');
+  }
 
-    // Group by category for storage
-    const categorizedList: Record<string, any[]> = {};
-    processedIngredients.forEach(ingredient => {
-        if (!categorizedList[ingredient.category]) {
-            categorizedList[ingredient.category] = [];
-        }
-        categorizedList[ingredient.category].push({
-            name: ingredient.name,
-            quantity: ingredient.quantity,
-            estimatedPrice: ingredient.estimatedPrice
-        });
-    });
-
-    // Save to shopping_lists table
-    const weekStartDate = new Date().toISOString().split('T')[0];
-    const shoppingListData = {
-        user_id: userId,
-        week_start_date: weekStartDate,
-        shopping_list: Object.entries(categorizedList).map(([category, items]) => ({
-            category,
-            items: items.map(item => `${item.quantity} ${item.name}`)
-        })),
-        budget: `$${Math.round(totalCost)}`,
-        ai_processed_ingredients: processedIngredients
-    };
-
-    // Delete old shopping list for this week
-    await supabaseClient
-        .from('shopping_lists')
-        .delete()
-        .eq('user_id', userId)
-        .eq('week_start_date', weekStartDate);
-
-    // Insert new shopping list
-    const { error: insertError } = await supabaseClient
-        .from('shopping_lists')
-        .insert(shoppingListData);
-
-    if (insertError) {
-        log("ERROR", "Failed to save fallback shopping list", { error: insertError });
-        throw insertError;
-    }
-
-    log("INFO", "Fallback shopping list saved successfully", { userId, totalCost, ingredientCount: processedIngredients.length });
+  console.log('Successfully saved meal plan to database');
 }
 
+async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pantryItems: string[]): Promise<void> {
+  // Collect all ingredients from the meal plan
+  const allIngredients: string[] = [];
+  
+  for (const day of mealPlan) {
+    if (day.main_dish?.ingredients) {
+      const ingredients = day.main_dish.ingredients.split('\n').filter((ing: string) => ing.trim());
+      allIngredients.push(...ingredients);
+    }
+    if (day.side_dish?.ingredients) {
+      const ingredients = day.side_dish.ingredients.split('\n').filter((ing: string) => ing.trim());
+      allIngredients.push(...ingredients);
+    }
+  }
 
-serve(async (req: Request) => {
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders });
+  console.log('All ingredients collected:', allIngredients.length);
+
+  // Process ingredients and create shopping list
+  const processedIngredients = processIngredientsForShopping(allIngredients, pantryItems);
+
+  // Get current Monday date for the week
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - today.getDay() + 1);
+  const weekStartDate = monday.toISOString().split('T')[0];
+
+  // Save shopping list
+  const { error: shoppingError } = await supabase
+    .from('shopping_lists')
+    .upsert({
+      user_id: userId,
+      week_start_date: weekStartDate,
+      shopping_list: allIngredients,
+      ai_processed_ingredients: processedIngredients
+    }, { onConflict: 'user_id,week_start_date' });
+
+  if (shoppingError) {
+    console.error('Error saving shopping list:', shoppingError);
+    throw new Error('Failed to save shopping list');
+  }
+
+  console.log('Successfully saved shopping list to database');
+}
+
+function processIngredientsForShopping(ingredients: string[], pantryItems: string[]): any {
+  const categories = {
+    'Produce': [],
+    'Meat & Seafood': [],
+    'Dairy & Eggs': [],
+    'Grains & Bakery': [],
+    'Pantry Staples': [],
+    'Other': []
+  };
+
+  // Simple categorization logic
+  for (const ingredient of ingredients) {
+    const lower = ingredient.toLowerCase();
+    const needed = !pantryItems.some(pantry => 
+      lower.includes(pantry.toLowerCase()) || pantry.toLowerCase().includes(lower)
+    );
+
+    if (!needed) continue;
+
+    let category = 'Other';
+    if (lower.includes('meat') || lower.includes('chicken') || lower.includes('beef') || lower.includes('fish') || lower.includes('shrimp')) {
+      category = 'Meat & Seafood';
+    } else if (lower.includes('milk') || lower.includes('cheese') || lower.includes('egg') || lower.includes('butter') || lower.includes('cream')) {
+      category = 'Dairy & Eggs';
+    } else if (lower.includes('bread') || lower.includes('pasta') || lower.includes('rice') || lower.includes('flour') || lower.includes('cereal')) {
+      category = 'Grains & Bakery';
+    } else if (lower.includes('tomato') || lower.includes('onion') || lower.includes('garlic') || lower.includes('lettuce') || lower.includes('carrot') || lower.includes('potato')) {
+      category = 'Produce';
+    } else if (lower.includes('oil') || lower.includes('salt') || lower.includes('pepper') || lower.includes('spice') || lower.includes('sauce')) {
+      category = 'Pantry Staples';
     }
 
-    try {
-        const { userId, pantryItems, dietaryPreferences, cookTime }: MealPlanRequest = await req.json();
-        
-        const supabaseClient: SupabaseClient = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-            { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-        );
+    categories[category].push({
+      name: ingredient,
+      quantity: '1',
+      category,
+      estimatedPrice: 2.50
+    });
+  }
 
-        const mealPlan = await generateMealPlan(pantryItems, dietaryPreferences, cookTime);
-        log("INFO", "Generated meal plan from OpenAI.", { userId });
+  return {
+    ingredients: Object.values(categories).flat(),
+    totalEstimatedCost: Object.values(categories).flat().length * 2.50
+  };
+}
 
-        const mealDaysWithRecipeIds: MealHistoryDay[] = await Promise.all(
-            mealPlan.map(async (dayPlan) => {
-                const mainDishId = await saveOrGetRecipe(supabaseClient, dayPlan.main_dish, userId);
-                
-                let sideDishId: string | null = null;
-                if (dayPlan.side_dish) {
-                    sideDishId = await saveOrGetRecipe(supabaseClient, dayPlan.side_dish, userId);
-                }
+function calculateTotalTime(mainDish: any, sideDish?: any): string {
+  const mainTime = mainDish?.ready_in_minutes || 30;
+  const sideTime = sideDish?.ready_in_minutes || 15;
+  const totalMinutes = Math.max(mainTime, sideTime);
+  return `${totalMinutes} minutes`;
+}
 
-                return {
-                    day: dayPlan.day,
-                    main_dish_id: mainDishId,
-                    side_dish_id: sideDishId,
-                    total_time_to_cook: dayPlan.total_time_to_cook,
-                    cooking_tips: dayPlan.cooking_tips,
-                };
-            })
-        );
-        
-        const { error: decrementError } = await supabaseClient.rpc(
-            'decrement_generations', 
-            { user_id_param: userId }
-        );
+function getFallbackMealConcepts(): MealConcept[] {
+  return [
+    { day: "Monday", main_dish_concept: "grilled chicken with herbs", side_dish_concept: "roasted vegetables", cuisine: "Mediterranean" },
+    { day: "Tuesday", main_dish_concept: "pasta with marinara sauce", side_dish_concept: "garlic bread", cuisine: "Italian" },
+    { day: "Wednesday", main_dish_concept: "stir-fry with vegetables", side_dish_concept: "steamed rice", cuisine: "Asian" },
+    { day: "Thursday", main_dish_concept: "baked salmon", side_dish_concept: "quinoa salad", cuisine: "American" },
+    { day: "Friday", main_dish_concept: "beef tacos", side_dish_concept: "guacamole", cuisine: "Mexican" },
+    { day: "Saturday", main_dish_concept: "vegetable curry", side_dish_concept: "naan bread", cuisine: "Indian" },
+    { day: "Sunday", main_dish_concept: "roast beef", side_dish_concept: "mashed potatoes", cuisine: "American" }
+  ];
+}
 
-        if (decrementError) {
-            log("ERROR", "Failed to decrement generation count.", { error: decrementError });
-            // Decide if this should be a hard error or just a warning
-            // For now, we'll log it and continue
-        }
-
-        const today = new Date();
-        const nextWeek = new Date();
-        nextWeek.setDate(today.getDate() + 7);
-
-        const { error: deleteError } = await supabaseClient
-            .from('user_meal_history')
-            .delete()
-            .eq('user_id', userId)
-            .gte('meal_date', today.toISOString().split('T')[0])
-            .lte('meal_date', nextWeek.toISOString().split('T')[0]);
-
-        if (deleteError) {
-            log("ERROR", "Failed to delete old meal plan.", { error: deleteError });
-            throw deleteError;
-        }
-        
-        const historyRecords = mealDaysWithRecipeIds.map((day, index) => {
-            const mealDate = new Date();
-            mealDate.setDate(mealDate.getDate() + index);
-            return {
-                user_id: userId,
-                main_dish_recipe_id: day.main_dish_id,
-                side_dish_recipe_id: day.side_dish_id,
-                meal_date: mealDate.toISOString().split('T')[0],
-                total_time_to_cook: day.total_time_to_cook,
-                cooking_tips: day.cooking_tips,
-            };
-        });
-
-        const { error: historyError } = await supabaseClient
-            .from('user_meal_history')
-            .insert(historyRecords);
-
-        if (historyError) {
-            log("ERROR", "Failed to insert into user_meal_history.", { error: historyError });
-            throw historyError;
-        }
-
-        log("INFO", "Successfully saved meal plan to user history.", { userId });
-
-        // Generate and save shopping list with AI processing
-        log("INFO", "Generating shopping list with AI processing...");
-        log("INFO", "Meal plan for shopping list:", { mealPlanLength: mealPlan.length, firstDay: mealPlan[0] });
-        try {
-            await generateShoppingListWithAI(mealPlan, supabaseClient, userId);
-            log("INFO", "Shopping list generated and saved successfully");
-        } catch (error) {
-            log("ERROR", "Failed to generate shopping list, but meal plan saved", { error: error.message, stack: error.stack });
-            // Don't fail the entire operation if shopping list generation fails
-        }
-
-        return new Response(
-            JSON.stringify({ mealPlan }),
-            { headers: { "Content-Type": "application/json", ...corsHeaders } }
-        );
-
-    } catch (error) {
-        if (error instanceof SyntaxError && error.message.includes("Unexpected end of JSON input")) {
-            log("ERROR", "Failed to parse request body.", { error: error.message });
-            return new Response(JSON.stringify({ error: "Request body is empty or invalid." }), {
-                status: 400,
-                headers: { "Content-Type": "application/json", ...corsHeaders },
-            });
-        }
-
-        let errorMessage = "An unknown error occurred.";
-        if (error instanceof Error) {
-            errorMessage = error.message;
-            log("ERROR", "Top-level function error.", { error: errorMessage, stack: error.stack });
-        } else {
-            log("ERROR", "Top-level function error.", { error: String(error) });
-        }
-        
-        return new Response(JSON.stringify({ error: errorMessage }), {
-            status: 500,
-            headers: { "Content-Type": "application/json", ...corsHeaders },
-        });
-    }
-});
+function getFallbackRecipe(dishConcept: string, concept: MealConcept): any {
+  return {
+    id: crypto.randomUUID(),
+    title: dishConcept,
+    description: `A delicious ${dishConcept.toLowerCase()} recipe.`,
+    ingredients: "2 cups main ingredient\n1 cup vegetables\nSeasonings to taste",
+    recipe: "1. Prepare ingredients\n2. Cook according to preference\n3. Season and serve",
+    calories: 400,
+    source_type: 'ai' as const
+  };
+}

@@ -195,38 +195,68 @@ export type Database = {
       recipes: {
         Row: {
           calories: number | null
+          cook_time: number | null
           created_at: string
           created_by_user: string | null
           description: string | null
           embedding: string | null
+          health_score: number | null
           id: string
+          image_url: string | null
           ingredients: string
+          nutrition: Json | null
+          prep_time: number | null
+          price_per_serving: number | null
+          ready_in_minutes: number | null
           recipe: string
           servings: number | null
+          source_type: string | null
+          source_url: string | null
+          spoonacular_id: number | null
           title: string
         }
         Insert: {
           calories?: number | null
+          cook_time?: number | null
           created_at?: string
           created_by_user?: string | null
           description?: string | null
           embedding?: string | null
+          health_score?: number | null
           id?: string
+          image_url?: string | null
           ingredients: string
+          nutrition?: Json | null
+          prep_time?: number | null
+          price_per_serving?: number | null
+          ready_in_minutes?: number | null
           recipe: string
           servings?: number | null
+          source_type?: string | null
+          source_url?: string | null
+          spoonacular_id?: number | null
           title: string
         }
         Update: {
           calories?: number | null
+          cook_time?: number | null
           created_at?: string
           created_by_user?: string | null
           description?: string | null
           embedding?: string | null
+          health_score?: number | null
           id?: string
+          image_url?: string | null
           ingredients?: string
+          nutrition?: Json | null
+          prep_time?: number | null
+          price_per_serving?: number | null
+          ready_in_minutes?: number | null
           recipe?: string
           servings?: number | null
+          source_type?: string | null
+          source_url?: string | null
+          spoonacular_id?: number | null
           title?: string
         }
         Relationships: []

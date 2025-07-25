@@ -475,8 +475,12 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                         <h3 className="text-2xl font-bold text-foreground mb-4 border-b pb-2">{mealDay.day}</h3>
                         <Card className="group cursor-pointer" onClick={() => setSelectedMealDay(mealDay)}>
                            <div className="grid md:grid-cols-3">
-                            <div className="md:col-span-1 h-48 md:h-full bg-gradient-warm flex items-center justify-center rounded-l-lg">
-                              <span className="text-7xl opacity-70">🍽️</span>
+                            <div className="md:col-span-1 h-48 md:h-full overflow-hidden rounded-l-lg">
+                              <img 
+                                src={mealDay.main_dish?.image_url || "/placeholder.svg"} 
+                                alt={mealDay.main_dish?.title || "Meal"} 
+                                className="w-full h-full object-cover"
+                              />
                             </div>
                             <div className="md:col-span-2 p-6">
                               <CardTitle className="group-hover:text-primary transition-colors">{mealDay.main_dish?.title}</CardTitle>

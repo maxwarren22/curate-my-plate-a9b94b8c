@@ -10,6 +10,17 @@ export interface Recipe {
   servings?: number;
   total_time_to_cook?: string;
   cooking_tips?: string;
+  // Spoonacular-specific fields
+  spoonacular_id?: number;
+  image_url?: string;
+  source_url?: string;
+  prep_time?: number;
+  cook_time?: number;
+  ready_in_minutes?: number;
+  health_score?: number;
+  price_per_serving?: number;
+  nutrition?: any;
+  source_type?: 'ai' | 'spoonacular';
 }
 
 // This represents the combined meal for a single day,
