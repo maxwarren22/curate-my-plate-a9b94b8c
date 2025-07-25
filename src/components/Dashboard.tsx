@@ -310,94 +310,98 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   };
 
-  const [shoppingListData, setShoppingListData] = useState<{
-    ingredients: Array<{name: string; quantity: string; category: string; estimatedPrice: number}>;
-    totalEstimatedCost: number;
-    categorizedList: Record<string, Array<{name: string; quantity: string; estimatedPrice: number}>>;
-  }>({
-    ingredients: [],
-    totalEstimatedCost: 0,
-    categorizedList: {}
-  });
+  const [storedShoppingList, setStoredShoppingList] = useState<any>(null);
   const [shoppingListLoading, setShoppingListLoading] = useState(false);
 
-  const processShoppingList = async () => {
-    if (!weeklyPlan || weeklyPlan.length === 0) {
-      setShoppingListData({
-        ingredients: [],
-        totalEstimatedCost: 0,
-        categorizedList: {}
-      });
-      return;
-    }
-
+  // Load stored shopping list from database
+  const loadStoredShoppingList = async () => {
     setShoppingListLoading(true);
     try {
-      // Collect all ingredients from recipes
-      const allIngredients: string[] = [];
-      
-      weeklyPlan.forEach((day) => {
-        if (day.main_dish?.ingredients) {
-          allIngredients.push(day.main_dish.ingredients);
-        }
-        if (day.side_dish?.ingredients) {
-          allIngredients.push(day.side_dish.ingredients);
-        }
-      });
+      const weekStartDate = new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('shopping_lists')
+        .select('*')
+        .eq('user_id', user?.id)
+        .eq('week_start_date', weekStartDate)
+        .single();
 
-      console.log("🛒 Processing shopping list with ingredients:", allIngredients);
-
-      const response = await supabase.functions.invoke('process-shopping-list', {
-        body: {
-          ingredients: allIngredients,
-          pantryItems: pantryItems
-        }
-      });
-
-      if (response.error) {
-        throw response.error;
+      if (error && error.code !== 'PGRST116') { // PGRST116 means no rows found
+        console.error('Error loading shopping list:', error);
+        return;
       }
 
-      console.log("✅ Shopping list processed:", response.data);
-      setShoppingListData(response.data);
-      setShoppingListBudget(`$${Math.round(response.data.totalEstimatedCost)}`);
+      setStoredShoppingList(data);
     } catch (error) {
-      console.error('Error processing shopping list:', error);
-      toast({
-        title: "Error",
-        description: "Failed to process shopping list. Please try again.",
-        variant: "destructive",
-      });
-      // Fallback to empty state
-      setShoppingListData({
-        ingredients: [],
-        totalEstimatedCost: 0,
-        categorizedList: {}
-      });
-      setShoppingListBudget(null);
+      console.error('Error loading shopping list:', error);
     } finally {
       setShoppingListLoading(false);
     }
   };
 
-  // Process shopping list when weekly plan or pantry items change
+  // Load shopping list when component mounts or weekly plan changes
   useEffect(() => {
-    processShoppingList();
-  }, [weeklyPlan, pantryItems]);
+    if (user?.id) {
+      loadStoredShoppingList();
+    }
+  }, [user?.id, weeklyPlan]);
 
-  // Create display format for shopping list
+  // Create dynamic shopping list by filtering stored list based on pantry items
   const adjustedShoppingList = useMemo(() => {
-    if (Object.keys(shoppingListData.categorizedList).length === 0) {
-      if (weeklyPlan && weeklyPlan.length > 0) {
-        return [{ category: "Shopping List", items: ["All ingredients are in your pantry!"] }];
+    if (!storedShoppingList?.ai_processed_ingredients || !Array.isArray(storedShoppingList.ai_processed_ingredients)) {
+      if (weeklyPlan && weeklyPlan.length > 0 && !shoppingListLoading) {
+        return [{ category: "Shopping List", items: ["AI-processed shopping list not available. Please regenerate your meal plan."] }];
       }
       return [];
     }
 
-    // Convert categorized data to display format
+    console.log("🛒 Processing stored shopping list with pantry filtering");
+    console.log("📦 Stored ingredients:", storedShoppingList.ai_processed_ingredients);
+    console.log("🥫 Pantry items:", pantryItems);
+
+    // Create pantry set for filtering
+    const pantrySet = new Set(
+      pantryItems.map(item => item.ingredient_name.toLowerCase().trim())
+    );
+
+    // Filter out pantry items from AI-processed ingredients
+    const filteredIngredients = storedShoppingList.ai_processed_ingredients.filter((ingredient: any) => {
+      const normalizedName = ingredient.name.toLowerCase().trim();
+      const isInPantry = pantrySet.has(normalizedName);
+      
+      if (isInPantry) {
+        console.log(`❌ Filtering out "${ingredient.name}" (in pantry)`);
+      } else {
+        console.log(`✅ Keeping "${ingredient.name}" (not in pantry)`);
+      }
+      
+      return !isInPantry;
+    });
+
+    if (filteredIngredients.length === 0) {
+      console.log("✨ All ingredients are in pantry!");
+      setShoppingListBudget(null);
+      return [{ category: "Shopping List", items: ["All ingredients are in your pantry!"] }];
+    }
+
+    // Group by category and calculate new total
+    const categorizedList: Record<string, any[]> = {};
+    let totalCost = 0;
+
+    filteredIngredients.forEach((ingredient: any) => {
+      if (!categorizedList[ingredient.category]) {
+        categorizedList[ingredient.category] = [];
+      }
+      categorizedList[ingredient.category].push(ingredient);
+      totalCost += ingredient.estimatedPrice || 0;
+    });
+
+    // Set the filtered budget
+    setShoppingListBudget(`$${Math.round(totalCost)}`);
+
+    // Convert to display format and sort
     const categoryOrder = ['Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Grains & Bakery', 'Pantry Staples', 'Canned/Packaged', 'Other'];
     
-    return Object.entries(shoppingListData.categorizedList)
+    const result = Object.entries(categorizedList)
       .map(([category, items]) => ({
         category,
         items: items.map(item => `${item.quantity} ${item.name}`)
@@ -407,7 +411,10 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         const bIndex = categoryOrder.indexOf(b.category);
         return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
       });
-  }, [shoppingListData, weeklyPlan]);
+
+    console.log("✅ Final filtered shopping list:", result);
+    return result;
+  }, [storedShoppingList, pantryItems, weeklyPlan, shoppingListLoading]);
 
   
   return (

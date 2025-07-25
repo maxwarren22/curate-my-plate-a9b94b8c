@@ -233,6 +233,7 @@ export type Database = {
       }
       shopping_lists: {
         Row: {
+          ai_processed_ingredients: Json | null
           budget: string | null
           created_at: string
           id: string
@@ -241,6 +242,7 @@ export type Database = {
           week_start_date: string
         }
         Insert: {
+          ai_processed_ingredients?: Json | null
           budget?: string | null
           created_at?: string
           id?: string
@@ -249,6 +251,7 @@ export type Database = {
           week_start_date: string
         }
         Update: {
+          ai_processed_ingredients?: Json | null
           budget?: string | null
           created_at?: string
           id?: string
