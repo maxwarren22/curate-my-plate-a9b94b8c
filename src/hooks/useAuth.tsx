@@ -12,26 +12,35 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  console.log('=== DEBUG: AuthProvider initializing ===');
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+    console.log('=== DEBUG: Setting up auth state listener ===');
+    try {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (_event, session) => {
+          console.log('=== DEBUG: Auth state changed ===', { session: !!session });
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+      );
+
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        console.log('=== DEBUG: Initial session check ===', { session: !!session });
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
-      }
-    );
+      });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+      return () => subscription.unsubscribe();
+    } catch (error) {
+      console.error('=== CRITICAL: Auth setup error ===', error);
       setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    }
   }, []);
 
   const signOut = async () => {
