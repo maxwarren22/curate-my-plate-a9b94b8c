@@ -170,6 +170,142 @@ async function saveOrGetRecipe(supabaseClient: SupabaseClient, dish: Recipe, use
     return newRecipe.id;
 }
 
+async function generateShoppingListWithAI(mealPlan: MealDay[], supabaseClient: SupabaseClient, userId: string): Promise<void> {
+    const openAIApiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openAIApiKey) {
+        log("ERROR", "OpenAI API key not configured for shopping list generation");
+        return;
+    }
+
+    // Collect all ingredients from meal plan
+    const allIngredients: string[] = [];
+    mealPlan.forEach(day => {
+        if (day.main_dish?.ingredients) {
+            allIngredients.push(...day.main_dish.ingredients);
+        }
+        if (day.side_dish?.ingredients) {
+            allIngredients.push(...day.side_dish.ingredients);
+        }
+    });
+
+    if (allIngredients.length === 0) {
+        log("ERROR", "No ingredients found in meal plan");
+        return;
+    }
+
+    const prompt = `You are a smart shopping list assistant. Please process this list of ingredients from a weekly meal plan and create a clean, aggregated shopping list.
+
+Ingredients from recipes:
+${allIngredients.join('\n')}
+
+Please:
+1. Parse and normalize all ingredients
+2. Aggregate quantities of the same items (e.g., "2 avocados" + "3 avocado" = "5 avocados")
+3. Use proper plural/singular forms
+4. Make vague items more specific (e.g., "1 cheese" → "8 oz cheddar cheese")
+5. Convert weird formats to common vernacular (e.g., "Juice of 1 Lemon" → "1 lemon (for juice)")
+6. Categorize into: Produce, Meat & Seafood, Dairy & Eggs, Grains & Bakery, Pantry Staples, Canned/Packaged, Other
+7. Estimate realistic grocery store prices in USD
+
+Return a JSON object in this exact format:
+{
+  "ingredients": [
+    {
+      "name": "avocados",
+      "quantity": "5",
+      "category": "Produce", 
+      "estimatedPrice": 7.50
+    }
+  ],
+  "totalEstimatedCost": 85.25
+}
+
+Make sure quantities are reasonable, names are clear, and prices reflect typical US grocery store costs.`;
+
+    try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${openAIApiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: 'You are a helpful grocery shopping assistant that creates clean, organized shopping lists.' },
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.1,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`OpenAI API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        
+        let parsedResult;
+        try {
+            parsedResult = JSON.parse(content);
+        } catch (e) {
+            log("ERROR", "Failed to parse OpenAI shopping list response", { content });
+            throw new Error('Invalid response format from OpenAI');
+        }
+
+        // Categorize ingredients for storage
+        const categorizedList: Record<string, any[]> = {};
+        parsedResult.ingredients.forEach((ingredient: any) => {
+            if (!categorizedList[ingredient.category]) {
+                categorizedList[ingredient.category] = [];
+            }
+            categorizedList[ingredient.category].push({
+                name: ingredient.name,
+                quantity: ingredient.quantity,
+                estimatedPrice: ingredient.estimatedPrice
+            });
+        });
+
+        // Save to shopping_lists table
+        const weekStartDate = new Date().toISOString().split('T')[0];
+        const shoppingListData = {
+            user_id: userId,
+            week_start_date: weekStartDate,
+            shopping_list: Object.entries(categorizedList).map(([category, items]) => ({
+                category,
+                items: items.map(item => `${item.quantity} ${item.name}`)
+            })),
+            budget: `$${Math.round(parsedResult.totalEstimatedCost)}`,
+            ai_processed_ingredients: parsedResult.ingredients
+        };
+
+        // Delete old shopping list for this week
+        await supabaseClient
+            .from('shopping_lists')
+            .delete()
+            .eq('user_id', userId)
+            .eq('week_start_date', weekStartDate);
+
+        // Insert new shopping list
+        const { error: insertError } = await supabaseClient
+            .from('shopping_lists')
+            .insert(shoppingListData);
+
+        if (insertError) {
+            log("ERROR", "Failed to save shopping list", { error: insertError });
+            throw insertError;
+        }
+
+        log("INFO", "Shopping list saved successfully", { userId, totalCost: parsedResult.totalEstimatedCost });
+
+    } catch (error) {
+        log("ERROR", "Error generating shopping list with AI", { error });
+        throw error;
+    }
+}
+
+
 serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders });
@@ -256,6 +392,16 @@ serve(async (req: Request) => {
         }
 
         log("INFO", "Successfully saved meal plan to user history.", { userId });
+
+        // Generate and save shopping list with AI processing
+        log("INFO", "Generating shopping list with AI processing...");
+        try {
+            await generateShoppingListWithAI(mealPlan, supabaseClient, userId);
+            log("INFO", "Shopping list generated and saved successfully");
+        } catch (error) {
+            log("ERROR", "Failed to generate shopping list, but meal plan saved", { error });
+            // Don't fail the entire operation if shopping list generation fails
+        }
 
         return new Response(
             JSON.stringify({ mealPlan }),
