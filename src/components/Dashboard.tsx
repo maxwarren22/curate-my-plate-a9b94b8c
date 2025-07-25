@@ -323,26 +323,56 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     const requiredItems = new Map<string, { quantity: number; unit: string }>();
 
     for (const ingredientString of allIngredients) {
-        try {
-            // Simplified ingredient processing - just use the ingredient string as-is
-            const cleanName = ingredientString.trim().toLowerCase();
-            
-            if (requiredItems.has(cleanName)) {
-                requiredItems.get(cleanName)!.quantity += 1;
-            } else {
-                requiredItems.set(cleanName, { quantity: 1, unit: 'item' });
+        // Split by newlines and process each ingredient line
+        const ingredientLines = ingredientString.split('\n').filter(line => line.trim());
+        
+        for (const line of ingredientLines) {
+            try {
+                const cleanLine = line.trim();
+                if (!cleanLine) continue;
+                
+                // Simple regex to extract quantity and ingredient name
+                const match = cleanLine.match(/^(\d+(?:\.\d+)?)\s*(.*)|^(.+)$/);
+                
+                let quantity = 1;
+                let ingredientName = cleanLine.toLowerCase();
+                
+                if (match) {
+                    if (match[1] && match[2]) {
+                        // Has quantity like "2 chicken breasts"
+                        quantity = parseFloat(match[1]) || 1;
+                        ingredientName = match[2].toLowerCase().trim();
+                    } else if (match[3]) {
+                        // No quantity like "salt" or "pepper"
+                        quantity = 1;
+                        ingredientName = match[3].toLowerCase().trim();
+                    }
+                }
+
+                // Remove common measurement words and clean up
+                ingredientName = ingredientName
+                    .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?)\b/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                if (ingredientName && ingredientName.length > 0) {
+                    if (requiredItems.has(ingredientName)) {
+                        requiredItems.get(ingredientName)!.quantity += quantity;
+                    } else {
+                        requiredItems.set(ingredientName, { quantity, unit: 'item' });
+                    }
+                }
+            } catch (e) {
+                console.warn("Could not parse ingredient:", line);
             }
-        } catch (e) {
-            console.warn("Could not parse ingredient:", ingredientString);
-            // Add unparsable ingredients as-is
-            const name = ingredientString.toLowerCase();
-            requiredItems.set(name, { quantity: 1, unit: 'item' });
         }
     }
 
+    // Create pantry map with normalized names
     const pantryMap = new Map<string, number>();
     pantryItems.forEach(item => {
-        pantryMap.set(item.ingredient_name.toLowerCase(), parseFloat(item.quantity) || 0);
+        const normalizedName = item.ingredient_name.toLowerCase().trim();
+        pantryMap.set(normalizedName, parseFloat(item.quantity) || 0);
     });
 
     const shoppingListItems: string[] = [];
@@ -352,12 +382,18 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         const toBuy = needed - inPantry;
 
         if (toBuy > 0) {
-            shoppingListItems.push(`${toBuy} ${item.unit} ${name}`);
+            // Format the display nicely
+            const displayQuantity = toBuy % 1 === 0 ? Math.floor(toBuy) : toBuy.toFixed(1);
+            shoppingListItems.push(`${displayQuantity} ${name}`);
         }
     });
     
-    // Simple categorization for display
-    const categorizedList = [{ category: "Shopping List", items: shoppingListItems }];
+    // Sort items alphabetically and categorize
+    shoppingListItems.sort();
+    const categorizedList = [{ 
+        category: "Shopping List", 
+        items: shoppingListItems.length > 0 ? shoppingListItems : ["All ingredients are in your pantry!"] 
+    }];
 
     return categorizedList;
   }, [weeklyPlan, pantryItems]);
