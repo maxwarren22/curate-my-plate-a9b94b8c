@@ -25,6 +25,7 @@ interface QuizData {
 type AppState = 'loading' | 'auth' | 'quiz' | 'dashboard' | 'landing';
 
 const Index = () => {
+  console.log('Index component is rendering...');
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
 

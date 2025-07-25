@@ -9,22 +9,15 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  console.log('App component is rendering...');
+  
+  return (
+    <div style={{padding: '20px', backgroundColor: 'red', color: 'white', fontSize: '24px'}}>
+      <h1>TEST - React App is Working!</h1>
+      <p>If you can see this, React is rendering correctly.</p>
+    </div>
+  );
+};
 
 export default App;
