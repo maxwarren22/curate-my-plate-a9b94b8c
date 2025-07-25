@@ -18,6 +18,7 @@ interface QuizData {
   skillLevel: string;
   servingSize: string;
   budget: string;
+  healthGoals: string;
 }
 
 // Define the possible states for the main application view
@@ -57,6 +58,7 @@ const Index = () => {
           skillLevel: profile.skill_level || '',
           servingSize: profile.serving_size || '',
           budget: profile.budget || '',
+          healthGoals: profile.health_goals || '',
         };
         setUserProfile(mappedProfile);
         setAppState('dashboard');
@@ -106,6 +108,7 @@ const Index = () => {
           skill_level: data.skillLevel,
           serving_size: data.servingSize,
           budget: data.budget,
+          health_goals: data.healthGoals,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }
