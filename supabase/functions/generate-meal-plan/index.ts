@@ -180,11 +180,21 @@ async function generateShoppingListWithAI(mealPlan: MealDay[], supabaseClient: S
     // Collect all ingredients from meal plan
     const allIngredients: string[] = [];
     mealPlan.forEach(day => {
+        // Handle main dish ingredients
         if (day.main_dish?.ingredients) {
-            allIngredients.push(...day.main_dish.ingredients);
+            if (Array.isArray(day.main_dish.ingredients)) {
+                allIngredients.push(...day.main_dish.ingredients);
+            } else {
+                allIngredients.push(day.main_dish.ingredients);
+            }
         }
+        // Handle side dish ingredients
         if (day.side_dish?.ingredients) {
-            allIngredients.push(...day.side_dish.ingredients);
+            if (Array.isArray(day.side_dish.ingredients)) {
+                allIngredients.push(...day.side_dish.ingredients);
+            } else {
+                allIngredients.push(day.side_dish.ingredients);
+            }
         }
     });
 
@@ -192,6 +202,8 @@ async function generateShoppingListWithAI(mealPlan: MealDay[], supabaseClient: S
         log("ERROR", "No ingredients found in meal plan");
         return;
     }
+
+    log("INFO", "All ingredients for shopping list:", { allIngredients, count: allIngredients.length });
 
     const prompt = `You are a smart shopping list assistant. Please process this list of ingredients from a weekly meal plan and create a clean, aggregated shopping list.
 
@@ -395,11 +407,12 @@ serve(async (req: Request) => {
 
         // Generate and save shopping list with AI processing
         log("INFO", "Generating shopping list with AI processing...");
+        log("INFO", "Meal plan for shopping list:", { mealPlanLength: mealPlan.length, firstDay: mealPlan[0] });
         try {
             await generateShoppingListWithAI(mealPlan, supabaseClient, userId);
             log("INFO", "Shopping list generated and saved successfully");
         } catch (error) {
-            log("ERROR", "Failed to generate shopping list, but meal plan saved", { error });
+            log("ERROR", "Failed to generate shopping list, but meal plan saved", { error: error.message, stack: error.stack });
             // Don't fail the entire operation if shopping list generation fails
         }
 
