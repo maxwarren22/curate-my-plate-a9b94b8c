@@ -451,42 +451,103 @@ async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pant
   
   for (const day of mealPlan) {
     if (day.main_dish?.ingredients) {
-      const ingredients = day.main_dish.ingredients.split('\n').filter((ing: string) => ing.trim());
-      allIngredients.push(...ingredients);
+      allIngredients.push(day.main_dish.ingredients);
     }
     if (day.side_dish?.ingredients) {
-      const ingredients = day.side_dish.ingredients.split('\n').filter((ing: string) => ing.trim());
-      allIngredients.push(...ingredients);
+      allIngredients.push(day.side_dish.ingredients);
     }
   }
 
-  console.log('All ingredients collected:', allIngredients.length);
+  console.log('Collected ingredients for shopping list:', allIngredients.length, 'ingredient blocks');
 
-  // Process ingredients and create shopping list
-  const processedIngredients = processIngredientsForShopping(allIngredients, pantryItems);
+  if (allIngredients.length === 0) {
+    console.log('No ingredients found, creating empty shopping list');
+    const { error: shoppingError } = await supabase
+      .from('shopping_lists')
+      .upsert({
+        user_id: userId,
+        week_start_date: getWeekStartDate(),
+        shopping_list: [],
+        ai_processed_ingredients: { ingredients: [], totalEstimatedCost: 0 }
+      }, { onConflict: 'user_id,week_start_date' });
 
-  // Get current Monday date for the week
+    if (shoppingError) {
+      console.error('Error saving empty shopping list:', shoppingError);
+    }
+    return;
+  }
+
+  // Get pantry items in the expected format
+  const { data: pantryData } = await supabase
+    .from('pantry_items')
+    .select('ingredient_name, quantity')
+    .eq('user_id', userId);
+
+  const pantryItemsFormatted = pantryData?.map(item => ({
+    ingredient_name: item.ingredient_name,
+    quantity: item.quantity || '1'
+  })) || [];
+
+  // Call the process-shopping-list function
+  try {
+    const { data: processedList, error: processError } = await supabase.functions.invoke('process-shopping-list', {
+      body: {
+        ingredients: allIngredients,
+        pantryItems: pantryItemsFormatted
+      }
+    });
+
+    if (processError) {
+      throw new Error(`Process shopping list error: ${processError.message}`);
+    }
+
+    console.log('Successfully processed shopping list with', processedList?.ingredients?.length || 0, 'ingredients');
+
+    // Save shopping list
+    const { error: shoppingError } = await supabase
+      .from('shopping_lists')
+      .upsert({
+        user_id: userId,
+        week_start_date: getWeekStartDate(),
+        shopping_list: allIngredients,
+        ai_processed_ingredients: processedList
+      }, { onConflict: 'user_id,week_start_date' });
+
+    if (shoppingError) {
+      console.error('Error saving shopping list:', shoppingError);
+      throw new Error('Failed to save shopping list');
+    }
+
+    console.log('Successfully saved shopping list to database');
+
+  } catch (error) {
+    console.error('Error processing shopping list:', error);
+    // Fallback to simple processing if the function call fails
+    const processedIngredients = processIngredientsForShopping(allIngredients.join('\n').split('\n'), pantryItems);
+    
+    const { error: shoppingError } = await supabase
+      .from('shopping_lists')
+      .upsert({
+        user_id: userId,
+        week_start_date: getWeekStartDate(),
+        shopping_list: allIngredients,
+        ai_processed_ingredients: processedIngredients
+      }, { onConflict: 'user_id,week_start_date' });
+
+    if (shoppingError) {
+      console.error('Error saving fallback shopping list:', shoppingError);
+      throw new Error('Failed to save shopping list');
+    }
+
+    console.log('Saved fallback shopping list to database');
+  }
+}
+
+function getWeekStartDate(): string {
   const today = new Date();
   const monday = new Date(today);
   monday.setDate(today.getDate() - today.getDay() + 1);
-  const weekStartDate = monday.toISOString().split('T')[0];
-
-  // Save shopping list
-  const { error: shoppingError } = await supabase
-    .from('shopping_lists')
-    .upsert({
-      user_id: userId,
-      week_start_date: weekStartDate,
-      shopping_list: allIngredients,
-      ai_processed_ingredients: processedIngredients
-    }, { onConflict: 'user_id,week_start_date' });
-
-  if (shoppingError) {
-    console.error('Error saving shopping list:', shoppingError);
-    throw new Error('Failed to save shopping list');
-  }
-
-  console.log('Successfully saved shopping list to database');
+  return monday.toISOString().split('T')[0];
 }
 
 function processIngredientsForShopping(ingredients: string[], pantryItems: string[]): any {
