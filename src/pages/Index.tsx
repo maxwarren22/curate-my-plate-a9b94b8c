@@ -25,15 +25,20 @@ interface QuizData {
 type AppState = 'loading' | 'auth' | 'quiz' | 'dashboard' | 'landing';
 
 const Index = () => {
-  console.log('Index component is rendering...');
+  console.log('=== DEBUG: Index component rendering ===');
   const { user, loading: authLoading } = useAuth();
+  console.log('=== DEBUG: Index - user:', !!user, 'authLoading:', authLoading);
   const { toast } = useToast();
 
   const [appState, setAppState] = useState<AppState>('loading');
   const [userProfile, setUserProfile] = useState<QuizData | null>(null);
+  
+  console.log('=== DEBUG: Index - appState:', appState);
 
   const checkUserProfile = useCallback(async () => {
+    console.log('=== DEBUG: checkUserProfile called, user:', !!user);
     if (!user) {
+      console.log('=== DEBUG: No user, setting appState to landing ===');
       setAppState('landing');
       return;
     }
@@ -132,7 +137,10 @@ const Index = () => {
 
   // --- Component Rendering Logic ---
 
+  console.log('=== DEBUG: About to render, appState:', appState, 'authLoading:', authLoading);
+
   if (appState === 'loading') {
+    console.log('=== DEBUG: Rendering loading state ===');
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -140,16 +148,21 @@ const Index = () => {
     );
   }
 
+  console.log('=== DEBUG: Rendering switch for appState:', appState);
+  
   switch (appState) {
     case 'auth':
+      console.log('=== DEBUG: Rendering AuthPage ===');
       return <AuthPage onAuthSuccess={handleAuthSuccess} />;
     case 'quiz':
+      console.log('=== DEBUG: Rendering Quiz ===');
       return <Quiz onComplete={handleQuizComplete} onBack={() => setAppState('landing')} />;
     case 'dashboard':
-      // --- FIX: Removed the incorrect props from this component call ---
+      console.log('=== DEBUG: Rendering Dashboard ===');
       return userProfile ? <Dashboard userProfile={userProfile} onBackToQuiz={() => setAppState('quiz')} /> : null;
     case 'landing':
     default:
+      console.log('=== DEBUG: Rendering LandingPage ===');
       return <LandingPage onStartQuiz={handleStart} />;
   }
 };
