@@ -311,12 +311,19 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
   };
 
   const adjustedShoppingList = useMemo(() => {
+    console.log("🛒 Shopping list calculation started");
+    console.log("📅 Weekly plan:", weeklyPlan);
+    console.log("🥫 Pantry items:", pantryItems);
+
     const allIngredients = weeklyPlan.flatMap(day => [
         ...(day.main_dish?.ingredients || []),
         ...(day.side_dish?.ingredients || []),
     ]);
 
+    console.log("🥕 All ingredients from recipes:", allIngredients);
+
     if (allIngredients.length === 0) {
+        console.log("❌ No ingredients found in recipes");
         return [];
     }
 
@@ -325,6 +332,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     for (const ingredientString of allIngredients) {
         // Split by newlines and process each ingredient line
         const ingredientLines = ingredientString.split('\n').filter(line => line.trim());
+        console.log("📝 Processing ingredient lines:", ingredientLines);
         
         for (const line of ingredientLines) {
             try {
@@ -340,17 +348,33 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                 if (quantityMatch) {
                     quantity = parseFloat(quantityMatch[1]) || 1;
                     ingredientName = quantityMatch[2];
+                } else {
+                    // Try to extract fractional quantities like "1/2 cup flour"
+                    const fractionMatch = cleanLine.match(/^(\d+\/\d+|\d+\s+\d+\/\d+)\s+(.+)$/);
+                    if (fractionMatch) {
+                        // Convert fraction to decimal (simplified)
+                        const fractionStr = fractionMatch[1];
+                        if (fractionStr.includes('/')) {
+                            const parts = fractionStr.split('/');
+                            quantity = parseFloat(parts[0]) / parseFloat(parts[1]) || 1;
+                        }
+                        ingredientName = fractionMatch[2];
+                    }
                 }
 
                 // Keep the original name for display, create normalized name for matching
                 const originalName = ingredientName.trim();
+                
+                // Less aggressive normalization - only remove measurements, keep descriptors
                 const normalizedName = ingredientName
                     .toLowerCase()
-                    .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?|chopped|diced|minced|fresh|dried|large|medium|small)\b/g, '')
+                    .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?)\b/g, '')
                     .replace(/\s+/g, ' ')
                     .trim();
 
-                if (normalizedName && normalizedName.length > 2) {
+                console.log(`🔍 Ingredient: "${cleanLine}" -> quantity: ${quantity}, original: "${originalName}", normalized: "${normalizedName}"`);
+
+                if (normalizedName && normalizedName.length > 1) {
                     const key = normalizedName;
                     if (requiredItems.has(key)) {
                         requiredItems.get(key)!.quantity += quantity;
@@ -364,16 +388,22 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         }
     }
 
+    console.log("📊 Required items map:", Array.from(requiredItems.entries()));
+
     // Create pantry map with normalized names
     const pantryMap = new Map<string, number>();
     pantryItems.forEach(item => {
         const normalizedName = item.ingredient_name
             .toLowerCase()
-            .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?|chopped|diced|minced|fresh|dried|large|medium|small)\b/g, '')
+            .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?)\b/g, '')
             .replace(/\s+/g, ' ')
             .trim();
-        pantryMap.set(normalizedName, parseFloat(item.quantity) || 0);
+        const quantity = parseFloat(item.quantity) || 0;
+        pantryMap.set(normalizedName, quantity);
+        console.log(`🥫 Pantry item: "${item.ingredient_name}" -> normalized: "${normalizedName}", quantity: ${quantity}`);
     });
+
+    console.log("🗃️ Pantry map:", Array.from(pantryMap.entries()));
 
     // Categorize ingredients
     const categorizeIngredient = (name: string): string => {
@@ -404,6 +434,8 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         const inPantry = pantryMap.get(normalizedName) || 0;
         const toBuy = needed - inPantry;
 
+        console.log(`🧮 Item: "${normalizedName}", needed: ${needed}, in pantry: ${inPantry}, to buy: ${toBuy}`);
+
         if (toBuy > 0) {
             const displayQuantity = toBuy % 1 === 0 ? Math.floor(toBuy) : toBuy.toFixed(1);
             const displayItem = `${displayQuantity} ${item.originalName}`;
@@ -418,6 +450,8 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
             totalEstimatedCost += toBuy * 3.5;
         }
     });
+
+    console.log("🛍️ Categorized items:", Array.from(categorizedItems.entries()));
 
     // Set budget estimate
     if (totalEstimatedCost > 0) {
@@ -439,6 +473,8 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         const bIndex = categoryOrder.indexOf(b.category);
         return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
     });
+
+    console.log("✅ Final shopping list:", categorizedList);
 
     return categorizedList.length > 0 ? categorizedList : [{ 
         category: "Shopping List", 
