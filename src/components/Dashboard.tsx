@@ -310,172 +310,104 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   };
 
-  // Helper function for categorization - define before useMemo
-  const categorizeIngredient = (name: string): string => {
-    const lowerName = name.toLowerCase();
-    if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey') || lowerName.includes('shrimp') || lowerName.includes('tuna')) {
-        return 'Meat & Seafood';
+  const [shoppingListData, setShoppingListData] = useState<{
+    ingredients: Array<{name: string; quantity: string; category: string; estimatedPrice: number}>;
+    totalEstimatedCost: number;
+    categorizedList: Record<string, Array<{name: string; quantity: string; estimatedPrice: number}>>;
+  }>({
+    ingredients: [],
+    totalEstimatedCost: 0,
+    categorizedList: {}
+  });
+  const [shoppingListLoading, setShoppingListLoading] = useState(false);
+
+  const processShoppingList = async () => {
+    if (!weeklyPlan || weeklyPlan.length === 0) {
+      setShoppingListData({
+        ingredients: [],
+        totalEstimatedCost: 0,
+        categorizedList: {}
+      });
+      return;
     }
-    if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
-        return 'Dairy & Eggs';
+
+    setShoppingListLoading(true);
+    try {
+      // Collect all ingredients from recipes
+      const allIngredients: string[] = [];
+      
+      weeklyPlan.forEach((day) => {
+        if (day.main_dish?.ingredients) {
+          allIngredients.push(day.main_dish.ingredients);
+        }
+        if (day.side_dish?.ingredients) {
+          allIngredients.push(day.side_dish.ingredients);
+        }
+      });
+
+      console.log("🛒 Processing shopping list with ingredients:", allIngredients);
+
+      const response = await supabase.functions.invoke('process-shopping-list', {
+        body: {
+          ingredients: allIngredients,
+          pantryItems: pantryItems
+        }
+      });
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      console.log("✅ Shopping list processed:", response.data);
+      setShoppingListData(response.data);
+      setShoppingListBudget(`$${Math.round(response.data.totalEstimatedCost)}`);
+    } catch (error) {
+      console.error('Error processing shopping list:', error);
+      toast({
+        title: "Error",
+        description: "Failed to process shopping list. Please try again.",
+        variant: "destructive",
+      });
+      // Fallback to empty state
+      setShoppingListData({
+        ingredients: [],
+        totalEstimatedCost: 0,
+        categorizedList: {}
+      });
+      setShoppingListBudget(null);
+    } finally {
+      setShoppingListLoading(false);
     }
-    if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic') || lowerName.includes('avocado') || lowerName.includes('cucumber') || lowerName.includes('greens') || lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
-        return 'Produce';
-    }
-    if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal') || lowerName.includes('tortilla')) {
-        return 'Grains & Bakery';
-    }
-    if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar') || lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
-        return 'Pantry Staples';
-    }
-    return 'Other';
   };
 
+  // Process shopping list when weekly plan or pantry items change
+  useEffect(() => {
+    processShoppingList();
+  }, [weeklyPlan, pantryItems]);
+
+  // Create display format for shopping list
   const adjustedShoppingList = useMemo(() => {
-    console.log("🛒 SHOPPING LIST DEBUG - START");
-    console.log("📅 Weekly plan:", weeklyPlan);
-    console.log("📅 Weekly plan length:", weeklyPlan.length);
-    console.log("🥫 Pantry items:", pantryItems);
-
-    if (weeklyPlan.length === 0) {
-        console.log("❌ No weekly plan found - returning empty");
-        return [];
-    }
-
-    const allIngredients = weeklyPlan.flatMap(day => {
-        console.log("Processing day:", day.day, "Main dish:", day.main_dish?.title, "Side dish:", day.side_dish?.title);
-        const mainIngredients = day.main_dish?.ingredients ? [day.main_dish.ingredients] : [];
-        const sideIngredients = day.side_dish?.ingredients ? [day.side_dish.ingredients] : [];
-        console.log("Main ingredients:", mainIngredients);
-        console.log("Side ingredients:", sideIngredients);
-        return [...mainIngredients, ...sideIngredients];
-    });
-
-    console.log("🥕 All raw ingredients:", allIngredients);
-
-    if (allIngredients.length === 0) {
-        console.log("❌ No ingredients found in recipes - returning empty");
-        return [];
-    }
-
-    const requiredItems = new Map<string, { quantity: number; originalName: string }>();
-
-    for (const ingredientString of allIngredients) {
-        if (!ingredientString) {
-            console.log("⚠️ Empty ingredient string, skipping");
-            continue;
-        }
-        
-        console.log("📝 Processing ingredient string:", ingredientString);
-        
-        // Split by newlines and process each ingredient line
-        const ingredientLines = ingredientString.split('\n').filter(line => line.trim());
-        console.log("📝 Split into lines:", ingredientLines);
-        
-        for (const line of ingredientLines) {
-            const cleanLine = line.trim();
-            if (!cleanLine) continue;
-            
-            // Extract quantity and ingredient name
-            let quantity = 1;
-            let ingredientName = cleanLine;
-            
-            // Look for quantity at the start
-            const quantityMatch = cleanLine.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
-            if (quantityMatch) {
-                quantity = parseFloat(quantityMatch[1]) || 1;
-                ingredientName = quantityMatch[2];
-            }
-
-            // Keep original name for display, create a normalized key for matching
-            const originalName = ingredientName.trim();
-            
-            // For matching, just normalize case and basic cleanup
-            let normalizedKey = ingredientName.toLowerCase().trim();
-            
-            console.log(`🔍 Line: "${cleanLine}" -> qty: ${quantity}, original: "${originalName}", key: "${normalizedKey}"`);
-
-            if (normalizedKey.length > 0) {
-                if (requiredItems.has(normalizedKey)) {
-                    const existing = requiredItems.get(normalizedKey)!;
-                    existing.quantity += quantity;
-                    console.log(`📈 Updated "${normalizedKey}" quantity to ${existing.quantity}`);
-                } else {
-                    requiredItems.set(normalizedKey, { quantity, originalName });
-                    console.log(`➕ Added "${normalizedKey}" with quantity ${quantity}`);
-                }
-            }
-        }
-    }
-
-    console.log("📊 Required items final:", Array.from(requiredItems.entries()));
-
-    // Create pantry map with similar normalization
-    const pantryMap = new Map<string, number>();
-    pantryItems.forEach(item => {
-        let normalizedKey = item.ingredient_name.toLowerCase().trim();
-        const qty = parseFloat(item.quantity) || 0;
-        pantryMap.set(normalizedKey, qty);
-        console.log(`🥫 Pantry: "${item.ingredient_name}" -> key: "${normalizedKey}", qty: ${qty}`);
-    });
-
-    console.log("🗃️ Pantry map final:", Array.from(pantryMap.entries()));
-
-    // Calculate what to buy and categorize
-    const categorizedItems = new Map<string, string[]>();
-    let totalEstimatedCost = 0;
-    
-    requiredItems.forEach((item, normalizedKey) => {
-        const needed = item.quantity;
-        const inPantry = pantryMap.get(normalizedKey) || 0;
-        const toBuy = needed - inPantry;
-
-        console.log(`🧮 "${normalizedKey}": needed=${needed}, inPantry=${inPantry}, toBuy=${toBuy}`);
-
-        if (toBuy > 0) {
-            const displayQuantity = toBuy % 1 === 0 ? Math.floor(toBuy) : toBuy.toFixed(1);
-            const displayItem = `${displayQuantity} ${item.originalName}`;
-            
-            // Simple categorization
-            const category = categorizeIngredient(item.originalName);
-            if (!categorizedItems.has(category)) {
-                categorizedItems.set(category, []);
-            }
-            categorizedItems.get(category)!.push(displayItem);
-            
-            totalEstimatedCost += toBuy * 3.5;
-            console.log(`➕ Added to buy: "${displayItem}" in category "${category}"`);
-        }
-    });
-
-    console.log("🛍️ Categorized items final:", Array.from(categorizedItems.entries()));
-
-    if (categorizedItems.size === 0) {
-        console.log("✅ All ingredients are in pantry - showing message");
-        setShoppingListBudget(null);
+    if (Object.keys(shoppingListData.categorizedList).length === 0) {
+      if (weeklyPlan && weeklyPlan.length > 0) {
         return [{ category: "Shopping List", items: ["All ingredients are in your pantry!"] }];
+      }
+      return [];
     }
 
-    // Set budget and create final list
-    setShoppingListBudget(`$${Math.round(totalEstimatedCost)}`);
+    // Convert categorized data to display format
+    const categoryOrder = ['Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Grains & Bakery', 'Pantry Staples', 'Canned/Packaged', 'Other'];
     
-    // Convert to array format and sort
-    const categorizedList = Array.from(categorizedItems.entries()).map(([category, items]) => ({
+    return Object.entries(shoppingListData.categorizedList)
+      .map(([category, items]) => ({
         category,
-        items: items.sort()
-    }));
-
-    // Sort categories by typical shopping order
-    const categoryOrder = ['Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Grains & Bakery', 'Pantry Staples', 'Other'];
-    categorizedList.sort((a, b) => {
+        items: items.map(item => `${item.quantity} ${item.name}`)
+      }))
+      .sort((a, b) => {
         const aIndex = categoryOrder.indexOf(a.category);
         const bIndex = categoryOrder.indexOf(b.category);
         return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
-    });
-    
-    console.log("✅ Final shopping list with categories:", categorizedList);
-    return categorizedList;
-  }, [weeklyPlan, pantryItems]);
+      });
+  }, [shoppingListData, weeklyPlan]);
 
   
   return (
@@ -572,7 +504,14 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                     </Button>
                 </CardHeader>
                 <CardContent>
-                    {loading ? <div className="text-center p-4">Loading...</div> : adjustedShoppingList.length > 0 ? (
+                    {(loading || shoppingListLoading) ? (
+                        <div className="text-center p-4">
+                            <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
+                            <p className="text-sm text-muted-foreground">
+                                {shoppingListLoading ? "Processing ingredients with AI..." : "Loading..."}
+                            </p>
+                        </div>
+                    ) : adjustedShoppingList.length > 0 ? (
                         <div className="columns-2 md:columns-3 gap-8">
                             {adjustedShoppingList.map((section) => (
                                 <div key={section.category} className="mb-4 break-inside-avoid">
