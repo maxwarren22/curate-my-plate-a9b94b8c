@@ -110,17 +110,21 @@ serve(async (req) => {
       dislikedIngredients: dislikedIngredients.length 
     });
 
-    // Step 1: Generate meal concepts with AI
-    const mealConcepts = await generateMealConcepts(profile, pantryItems, dislikedIngredients);
-    console.log('Generated meal concepts:', mealConcepts.length);
+    // Get or create cached recipe pool based on user preferences
+    const recipePool = await getOrCreateRecipePool(
+      profile.dietary_restrictions || [],
+      profile.cuisine_preferences || [],
+      dislikedIngredients
+    );
+    console.log('Recipe pool ready:', recipePool?.length || 0, 'recipes');
 
-    // Step 2: Search Spoonacular for matching recipes
-    const spoonacularMatches = await findSpoonacularMatches(mealConcepts, profile, dislikedIngredients);
-    console.log('Found Spoonacular matches:', spoonacularMatches.length);
+    if (!recipePool || recipePool.length < 7) {
+      throw new Error('Insufficient recipes in pool for meal plan generation');
+    }
 
-    // Step 3: Fill gaps with AI-generated recipes
-    const completeMealPlan = await fillMealPlanGaps(mealConcepts, spoonacularMatches, profile, pantryItems, dislikedIngredients);
-    console.log('Complete meal plan generated with', completeMealPlan.length, 'days');
+    // Use AI to select and score recipes for optimal meal plan
+    const completeMealPlan = await selectMealPlanFromPool(recipePool, profile, pantryItems, dislikedIngredients);
+    console.log('Complete meal plan selected from pool with', completeMealPlan.length, 'days');
 
     // Step 4: Save meal plan to database
     await saveMealPlanToDatabase(user.id, completeMealPlan);
@@ -147,6 +151,272 @@ serve(async (req) => {
     });
   }
 });
+
+// Recipe pool caching functions
+async function getOrCreateRecipePool(
+  dietaryRestrictions: string[],
+  cuisinePreferences: string[],
+  dislikedIngredients: string[]
+): Promise<SpoonacularRecipe[]> {
+  console.log('=== RECIPE POOL MANAGEMENT ===');
+  
+  // Create preference hash for caching
+  const preferenceKey = JSON.stringify({
+    dietary: dietaryRestrictions.sort(),
+    cuisine: cuisinePreferences.sort(),
+    dislikes: dislikedIngredients.sort()
+  });
+  const preferenceHash = btoa(preferenceKey).substring(0, 50);
+  
+  console.log('Looking for cached recipe pool with hash:', preferenceHash);
+  
+  // Check for existing cached pool
+  const { data: existingPool } = await supabase
+    .from('recipe_pools')
+    .select('recipes, created_at')
+    .eq('preference_hash', preferenceHash)
+    .gt('expires_at', new Date().toISOString())
+    .single();
+  
+  if (existingPool) {
+    console.log('✅ Found cached recipe pool with', existingPool.recipes.length, 'recipes');
+    return existingPool.recipes;
+  }
+  
+  console.log('🔄 No cached pool found, creating new one...');
+  
+  // Create new recipe pool using Spoonacular
+  const recipePool = await buildRecipePoolFromSpoonacular(dietaryRestrictions, cuisinePreferences, dislikedIngredients);
+  
+  if (recipePool.length > 0) {
+    // Cache the recipe pool
+    await supabase
+      .from('recipe_pools')
+      .upsert({
+        preference_hash: preferenceHash,
+        dietary_restrictions: dietaryRestrictions,
+        cuisine_preferences: cuisinePreferences,
+        recipes: recipePool
+      }, { onConflict: 'preference_hash' });
+    
+    console.log('✅ Cached new recipe pool with', recipePool.length, 'recipes');
+  }
+  
+  return recipePool;
+}
+
+async function buildRecipePoolFromSpoonacular(
+  dietaryRestrictions: string[],
+  cuisinePreferences: string[],
+  dislikedIngredients: string[]
+): Promise<SpoonacularRecipe[]> {
+  if (!spoonacularApiKey) {
+    console.log('❌ No Spoonacular API key available');
+    return [];
+  }
+  
+  const recipePool: SpoonacularRecipe[] = [];
+  const recipesPerCuisine = 25; // Get 25 recipes per cuisine
+  const cuisines = cuisinePreferences.length > 0 ? cuisinePreferences : ['italian', 'american', 'asian', 'mediterranean'];
+  
+  for (const cuisine of cuisines) {
+    console.log('🔍 Fetching recipes for cuisine:', cuisine);
+    
+    const excludeIngredients = dislikedIngredients.join(',');
+    const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
+    
+    // Use broader search terms for better results
+    const searchTerms = [
+      '', // General recipes for this cuisine
+      'chicken',
+      'beef',
+      'fish',
+      'vegetarian',
+      'pasta',
+      'rice'
+    ];
+    
+    for (const term of searchTerms) {
+      try {
+        const searchUrl = `https://api.spoonacular.com/recipes/complexSearch?` +
+          `apiKey=${spoonacularApiKey}&` +
+          `query=${encodeURIComponent(term)}&` +
+          `cuisine=${encodeURIComponent(cuisine)}&` +
+          `diet=${encodeURIComponent(diet)}&` +
+          `excludeIngredients=${encodeURIComponent(excludeIngredients)}&` +
+          `number=15&` +
+          `addRecipeInformation=true&` +
+          `addRecipeInstructions=true&` +
+          `addRecipeNutrition=true&` +
+          `sort=popularity&` +
+          `minCredits=100`;
+          
+        const response = await fetch(searchUrl);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.results) {
+            recipePool.push(...data.results);
+            console.log(`✅ Added ${data.results.length} recipes for ${cuisine}/${term}`);
+          }
+        }
+        
+        // Small delay to respect rate limits
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (recipePool.length >= recipesPerCuisine) break;
+      } catch (error) {
+        console.error(`❌ Error fetching recipes for ${cuisine}/${term}:`, error);
+      }
+    }
+  }
+  
+  // Remove duplicates based on spoonacular ID
+  const uniqueRecipes = recipePool.filter((recipe, index, self) => 
+    index === self.findIndex(r => r.id === recipe.id)
+  );
+  
+  console.log(`✅ Built recipe pool with ${uniqueRecipes.length} unique recipes`);
+  return uniqueRecipes;
+}
+
+async function selectMealPlanFromPool(
+  recipePool: SpoonacularRecipe[],
+  profile: any,
+  pantryItems: string[],
+  dislikedIngredients: string[]
+): Promise<any[]> {
+  console.log('=== AI MEAL SELECTION FROM POOL ===');
+  
+  if (!openAIApiKey) {
+    console.log('No OpenAI key, using simple selection');
+    return selectMealPlanSimple(recipePool);
+  }
+  
+  // Create recipe summaries for AI analysis
+  const recipeSummaries = recipePool.slice(0, 50).map((recipe, index) => ({
+    index,
+    title: recipe.title,
+    readyInMinutes: recipe.readyInMinutes,
+    healthScore: recipe.healthScore,
+    calories: recipe.nutrition?.nutrients?.find((n: any) => n.name === 'Calories')?.amount || 0,
+    ingredients: recipe.extendedIngredients?.slice(0, 5).map((ing: any) => ing.name).join(', ') || ''
+  }));
+  
+  const prompt = `You are a meal planning expert. Select 7 recipes from this pool for a weekly meal plan.
+
+User preferences:
+- Dietary restrictions: ${profile.dietary_restrictions?.join(', ') || 'none'}
+- Cuisine preferences: ${profile.cuisine_preferences?.join(', ') || 'varied'}
+- Health goals: ${profile.health_goals || 'balanced'}
+- Cooking time: ${profile.cooking_time || '30 minutes'}
+- Available ingredients: ${pantryItems.slice(0, 10).join(', ')}
+
+Recipe pool (first 50 recipes):
+${JSON.stringify(recipeSummaries, null, 2)}
+
+Select 7 recipes that:
+1. Provide variety across the week
+2. Match user preferences
+3. Balance nutrition and flavors
+4. Consider cooking time constraints
+5. Use available pantry ingredients when possible
+
+Return ONLY a JSON array with 7 objects:
+[
+  {
+    "day": "Monday",
+    "selectedIndex": 5,
+    "reason": "Brief reason for selection"
+  }
+]`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const content = data.choices[0].message.content;
+      const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+      const selections = JSON.parse(cleanContent);
+      
+      console.log('✅ AI selected recipes:', selections.length);
+      
+      // Build meal plan from selections
+      const mealPlan = [];
+      for (const selection of selections) {
+        const selectedRecipe = recipePool[selection.selectedIndex];
+        if (selectedRecipe) {
+          const convertedRecipe = await convertSpoonacularToRecipe(selectedRecipe, true);
+          mealPlan.push({
+            day: selection.day,
+            main_dish: convertedRecipe,
+            side_dish: null,
+            total_time_to_cook: `${selectedRecipe.readyInMinutes || 30} minutes`,
+            cooking_tips: `${selection.reason} Recipe from Spoonacular.`
+          });
+        }
+      }
+      
+      return mealPlan;
+    }
+  } catch (error) {
+    console.error('❌ AI selection failed:', error);
+  }
+  
+  // Fallback to simple selection
+  console.log('🔄 Falling back to simple selection');
+  return selectMealPlanSimple(recipePool);
+}
+
+function selectMealPlanSimple(recipePool: SpoonacularRecipe[]): any[] {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const mealPlan = [];
+  
+  // Simple strategy: pick recipes with good variety
+  const usedRecipes = new Set();
+  
+  for (let i = 0; i < 7; i++) {
+    let selectedRecipe = null;
+    let attempts = 0;
+    
+    // Try to find an unused recipe
+    while (attempts < 20 && !selectedRecipe) {
+      const randomIndex = Math.floor(Math.random() * recipePool.length);
+      const recipe = recipePool[randomIndex];
+      
+      if (!usedRecipes.has(recipe.id)) {
+        selectedRecipe = recipe;
+        usedRecipes.add(recipe.id);
+      }
+      attempts++;
+    }
+    
+    if (selectedRecipe) {
+      const convertedRecipe = convertSpoonacularToRecipe(selectedRecipe, true);
+      mealPlan.push({
+        day: days[i],
+        main_dish: convertedRecipe,
+        side_dish: null,
+        total_time_to_cook: `${selectedRecipe.readyInMinutes || 30} minutes`,
+        cooking_tips: `Randomly selected from recipe pool. Recipe from Spoonacular.`
+      });
+    }
+  }
+  
+  return mealPlan;
+}
 
 async function generateMealConcepts(profile: any, pantryItems: string[], dislikedIngredients: string[]): Promise<MealConcept[]> {
   console.log('=== GENERATING MEAL CONCEPTS ===');
