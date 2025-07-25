@@ -238,12 +238,15 @@ Make sure quantities are reasonable, names are clear, and prices reflect typical
     const content = data.choices[0].message.content;
     
     // Parse the JSON response
+    console.log('OpenAI response content:', content);
     let parsedResult;
     try {
       parsedResult = JSON.parse(content);
+      console.log('Successfully parsed OpenAI response:', parsedResult);
     } catch (e) {
-      console.error('Failed to parse OpenAI response:', content);
-      throw new Error('Invalid response format from OpenAI');
+      console.error('Failed to parse OpenAI response as JSON:', e);
+      console.error('Raw content that failed to parse:', content);
+      throw new Error(`Invalid response format from OpenAI: ${e.message}`);
     }
 
     // Categorize ingredients
