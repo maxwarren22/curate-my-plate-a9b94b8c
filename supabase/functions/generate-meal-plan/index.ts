@@ -216,59 +216,77 @@ async function buildRecipePoolFromSpoonacular(
   }
   
   const recipePool: SpoonacularRecipe[] = [];
-  const recipesPerCuisine = 25; // Get 25 recipes per cuisine
-  const cuisines = cuisinePreferences.length > 0 ? cuisinePreferences : ['italian', 'american', 'asian', 'mediterranean'];
+  const targetRecipes = 50; // Target 50 recipes total
   
-  for (const cuisine of cuisines) {
-    console.log('🔍 Fetching recipes for cuisine:', cuisine);
-    
-    const excludeIngredients = dislikedIngredients.join(',');
-    const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
-    
-    // Use broader search terms for better results
-    const searchTerms = [
-      '', // General recipes for this cuisine
-      'chicken',
-      'beef',
-      'fish',
-      'vegetarian',
-      'pasta',
-      'rice'
-    ];
-    
-    for (const term of searchTerms) {
-      try {
-        const searchUrl = `https://api.spoonacular.com/recipes/complexSearch?` +
-          `apiKey=${spoonacularApiKey}&` +
-          `query=${encodeURIComponent(term)}&` +
-          `cuisine=${encodeURIComponent(cuisine)}&` +
-          `diet=${encodeURIComponent(diet)}&` +
-          `excludeIngredients=${encodeURIComponent(excludeIngredients)}&` +
-          `number=15&` +
-          `addRecipeInformation=true&` +
-          `addRecipeInstructions=true&` +
-          `addRecipeNutrition=true&` +
-          `sort=popularity&` +
-          `minCredits=100`;
-          
-        const response = await fetch(searchUrl);
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.results) {
-            recipePool.push(...data.results);
-            console.log(`✅ Added ${data.results.length} recipes for ${cuisine}/${term}`);
+  // Use popular search terms that are likely to return results
+  const searchQueries = [
+    'chicken',
+    'beef',
+    'pasta',
+    'salmon',
+    'vegetarian',
+    'rice',
+    'soup',
+    'salad',
+    'pizza',
+    'sandwich'
+  ];
+  
+  // Get cuisines or use defaults
+  const cuisines = cuisinePreferences.length > 0 ? cuisinePreferences : ['american', 'italian', 'asian'];
+  
+  console.log(`🔍 Building recipe pool for cuisines: ${cuisines.join(', ')}`);
+  console.log(`📝 Dietary restrictions: ${dietaryRestrictions.join(', ') || 'none'}`);
+  console.log(`❌ Excluding ingredients: ${dislikedIngredients.join(', ') || 'none'}`);
+  
+  // Try multiple approaches to get recipes
+  const approaches = [
+    // Approach 1: Search by cuisine + query
+    async () => {
+      for (const cuisine of cuisines) {
+        for (const query of searchQueries.slice(0, 5)) {
+          const recipes = await fetchSpoonacularRecipes(query, cuisine, dietaryRestrictions, dislikedIngredients, 10);
+          if (recipes.length > 0) {
+            recipePool.push(...recipes);
+            console.log(`✅ Added ${recipes.length} recipes for ${cuisine}/${query}`);
           }
+          if (recipePool.length >= targetRecipes) return;
         }
-        
-        // Small delay to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        if (recipePool.length >= recipesPerCuisine) break;
-      } catch (error) {
-        console.error(`❌ Error fetching recipes for ${cuisine}/${term}:`, error);
+      }
+    },
+    
+    // Approach 2: Broader search without cuisine restriction
+    async () => {
+      if (recipePool.length < 20) {
+        console.log('🔄 Trying broader search without cuisine restriction...');
+        for (const query of searchQueries) {
+          const recipes = await fetchSpoonacularRecipes(query, '', dietaryRestrictions, dislikedIngredients, 15);
+          if (recipes.length > 0) {
+            recipePool.push(...recipes);
+            console.log(`✅ Added ${recipes.length} broad recipes for ${query}`);
+          }
+          if (recipePool.length >= targetRecipes) return;
+        }
+      }
+    },
+    
+    // Approach 3: Very simple search with minimal filters
+    async () => {
+      if (recipePool.length < 10) {
+        console.log('🔄 Trying minimal filter search...');
+        const recipes = await fetchSpoonacularRecipes('', '', [], [], 30);
+        if (recipes.length > 0) {
+          recipePool.push(...recipes);
+          console.log(`✅ Added ${recipes.length} minimal filter recipes`);
+        }
       }
     }
+  ];
+  
+  // Execute approaches in order until we have enough recipes
+  for (const approach of approaches) {
+    await approach();
+    if (recipePool.length >= 15) break; // Stop once we have a reasonable amount
   }
   
   // Remove duplicates based on spoonacular ID
@@ -278,6 +296,62 @@ async function buildRecipePoolFromSpoonacular(
   
   console.log(`✅ Built recipe pool with ${uniqueRecipes.length} unique recipes`);
   return uniqueRecipes;
+}
+
+async function fetchSpoonacularRecipes(
+  query: string,
+  cuisine: string,
+  dietaryRestrictions: string[],
+  dislikedIngredients: string[],
+  number: number
+): Promise<SpoonacularRecipe[]> {
+  try {
+    const excludeIngredients = dislikedIngredients.slice(0, 5).join(','); // Limit excludes
+    const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
+    
+    const searchUrl = `https://api.spoonacular.com/recipes/complexSearch?` +
+      `apiKey=${spoonacularApiKey}&` +
+      `query=${encodeURIComponent(query)}&` +
+      `cuisine=${encodeURIComponent(cuisine)}&` +
+      `diet=${encodeURIComponent(diet)}&` +
+      `excludeIngredients=${encodeURIComponent(excludeIngredients)}&` +
+      `number=${number}&` +
+      `addRecipeInformation=true&` +
+      `addRecipeInstructions=true&` +
+      `addRecipeNutrition=true&` +
+      `sort=popularity`;
+      
+    console.log(`🌐 Fetching from Spoonacular: ${query}/${cuisine} (${number} recipes)`);
+    const response = await fetch(searchUrl);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Spoonacular API error (${response.status}):`, errorText);
+      return [];
+    }
+    
+    const data = await response.json();
+    
+    if (data.error) {
+      console.error('❌ Spoonacular returned error:', data.error);
+      return [];
+    }
+    
+    if (!data.results || data.results.length === 0) {
+      console.log(`⚠️ No results for query: ${query}/${cuisine}`);
+      return [];
+    }
+    
+    console.log(`✅ Fetched ${data.results.length} recipes for ${query}/${cuisine}`);
+    
+    // Small delay to respect rate limits
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    return data.results;
+  } catch (error) {
+    console.error(`❌ Error fetching recipes for ${query}/${cuisine}:`, error);
+    return [];
+  }
 }
 
 async function selectMealPlanFromPool(
@@ -380,7 +454,7 @@ Return ONLY a JSON array with 7 objects:
   return selectMealPlanSimple(recipePool);
 }
 
-function selectMealPlanSimple(recipePool: SpoonacularRecipe[]): any[] {
+async function selectMealPlanSimple(recipePool: SpoonacularRecipe[]): Promise<any[]> {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const mealPlan = [];
   
@@ -404,7 +478,7 @@ function selectMealPlanSimple(recipePool: SpoonacularRecipe[]): any[] {
     }
     
     if (selectedRecipe) {
-      const convertedRecipe = convertSpoonacularToRecipe(selectedRecipe, true);
+      const convertedRecipe = await convertSpoonacularToRecipe(selectedRecipe, true);
       mealPlan.push({
         day: days[i],
         main_dish: convertedRecipe,
