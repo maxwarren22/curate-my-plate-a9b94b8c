@@ -213,6 +213,11 @@ async function searchSpoonacularRecipe(
   dislikedIngredients: string[] = []
 ): Promise<SpoonacularRecipe | null> {
   try {
+    if (!spoonacularApiKey) {
+      console.log('No Spoonacular API key available, skipping recipe search');
+      return null;
+    }
+
     const excludeIngredients = dislikedIngredients.join(',');
     const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
     
@@ -227,8 +232,16 @@ async function searchSpoonacularRecipe(
       `addRecipeInstructions=true&` +
       `addRecipeNutrition=true`;
 
+    console.log('Searching Spoonacular for:', dishConcept, 'with cuisine:', cuisine);
     const response = await fetch(searchUrl);
+    
+    if (!response.ok) {
+      console.error('Spoonacular API error:', response.status, response.statusText);
+      return null;
+    }
+    
     const data = await response.json();
+    console.log('Spoonacular response for', dishConcept, ':', data.results?.length || 0, 'results');
 
     if (data.results && data.results.length > 0) {
       return data.results[0];
