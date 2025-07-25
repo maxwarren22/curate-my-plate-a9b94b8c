@@ -192,6 +192,36 @@ export type Database = {
         }
         Relationships: []
       }
+      recipe_pools: {
+        Row: {
+          created_at: string
+          cuisine_preferences: string[] | null
+          dietary_restrictions: string[] | null
+          expires_at: string
+          id: string
+          preference_hash: string
+          recipes: Json
+        }
+        Insert: {
+          created_at?: string
+          cuisine_preferences?: string[] | null
+          dietary_restrictions?: string[] | null
+          expires_at?: string
+          id?: string
+          preference_hash: string
+          recipes: Json
+        }
+        Update: {
+          created_at?: string
+          cuisine_preferences?: string[] | null
+          dietary_restrictions?: string[] | null
+          expires_at?: string
+          id?: string
+          preference_hash?: string
+          recipes?: Json
+        }
+        Relationships: []
+      }
       recipes: {
         Row: {
           calories: number | null
@@ -350,6 +380,10 @@ export type Database = {
       binary_quantize: {
         Args: { "": string } | { "": unknown }
         Returns: unknown
+      }
+      cleanup_expired_recipe_pools: {
+        Args: Record<PropertyKey, never>
+        Returns: number
       }
       halfvec_avg: {
         Args: { "": number[] }
