@@ -38,6 +38,7 @@ interface PantryItem {
 
 interface DashboardProps {
   userProfile: UserProfile;
+  onBackToQuiz?: () => void;
 }
 
 export const Dashboard = ({ userProfile }: DashboardProps) => {
@@ -323,19 +324,19 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
 
     for (const ingredientString of allIngredients) {
         try {
-            const [parsed] = parseIngredient(ingredientString);
-            const name = parsed.ingredient.toLowerCase();
-            const quantity = parsed.quantity || 1; // Default to 1 if quantity is not parsed
-
-            if (requiredItems.has(name)) {
-                // Note: This doesn't handle unit conversion (e.g., tbsp to cup)
-                requiredItems.get(name)!.quantity += quantity;
+            // Simplified ingredient processing - just use the ingredient string as-is
+            const cleanName = ingredientString.trim().toLowerCase();
+            
+            if (requiredItems.has(cleanName)) {
+                requiredItems.get(cleanName)!.quantity += 1;
             } else {
-                requiredItems.set(name, { quantity, unit: parsed.unitOfMeasure || 'count' });
+                requiredItems.set(cleanName, { quantity: 1, unit: 'item' });
             }
         } catch (e) {
             console.warn("Could not parse ingredient:", ingredientString);
-            // Handle un-parsable ingredients gracefully, maybe add them to a separate list
+            // Add unparsable ingredients as-is
+            const name = ingredientString.toLowerCase();
+            requiredItems.set(name, { quantity: 1, unit: 'item' });
         }
     }
 

@@ -17,7 +17,7 @@ export interface Recipe {
 export interface MealDay {
   day: string;
   main_dish: Recipe;
-  side_dish: Omit<Recipe, 'id' | 'servings'>; // A side dish doesn't need its own ID or servings
+  side_dish?: Recipe; // Make side dish optional and keep full Recipe type
   total_time_to_cook: string;
   cooking_tips?: string;
 }

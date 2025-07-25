@@ -72,11 +72,11 @@ export const SavedRecipes = () => {
       day: 'Saved Recipe',
       main_dish: recipe,
       side_dish: {
+        id: 'placeholder',
         title: '',
         ingredients: '',
         recipe: '',
         calories: 0,
-        cuisine: '',
       },
       total_time_to_cook: recipe.total_time_to_cook || 'N/A',
       cooking_tips: recipe.cooking_tips,
