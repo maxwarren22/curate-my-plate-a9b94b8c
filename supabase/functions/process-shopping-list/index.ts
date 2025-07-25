@@ -20,6 +20,134 @@ interface ShoppingListResponse {
   categorizedList: Record<string, ProcessedIngredient[]>;
 }
 
+// Fallback function for basic ingredient processing when OpenAI is not available
+function createFallbackShoppingList(ingredients: string[], pantryItems: any[]): ShoppingListResponse {
+  console.log('Using fallback shopping list processing');
+  
+  // Create pantry set for filtering
+  const pantrySet = new Set(
+    pantryItems.map(item => item.ingredient_name.toLowerCase().trim())
+  );
+  
+  // Parse all ingredients
+  const parsedIngredients: ProcessedIngredient[] = [];
+  const seenIngredients = new Map<string, ProcessedIngredient>();
+  
+  ingredients.forEach(ingredientString => {
+    const lines = ingredientString.split('\n').filter(line => line.trim());
+    
+    lines.forEach(line => {
+      const cleanLine = line.replace(/^-\s*/, '').trim();
+      if (!cleanLine) return;
+      
+      // Extract quantity and name
+      const quantityMatch = cleanLine.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+      let quantity = '1';
+      let name = cleanLine;
+      
+      if (quantityMatch) {
+        quantity = quantityMatch[1];
+        name = quantityMatch[2];
+      }
+      
+      // Skip if in pantry
+      if (pantrySet.has(name.toLowerCase().trim())) {
+        return;
+      }
+      
+      // Basic categorization
+      const category = categorizeIngredientBasic(name);
+      const estimatedPrice = estimatePriceBasic(name, parseFloat(quantity));
+      
+      const key = name.toLowerCase().trim();
+      if (seenIngredients.has(key)) {
+        const existing = seenIngredients.get(key)!;
+        existing.quantity = (parseFloat(existing.quantity) + parseFloat(quantity)).toString();
+        existing.estimatedPrice += estimatedPrice;
+      } else {
+        seenIngredients.set(key, {
+          name,
+          quantity,
+          category,
+          estimatedPrice
+        });
+      }
+    });
+  });
+  
+  const allIngredients = Array.from(seenIngredients.values());
+  const totalCost = allIngredients.reduce((sum, item) => sum + item.estimatedPrice, 0);
+  
+  // Group by category
+  const categorizedList: Record<string, ProcessedIngredient[]> = {};
+  allIngredients.forEach(ingredient => {
+    if (!categorizedList[ingredient.category]) {
+      categorizedList[ingredient.category] = [];
+    }
+    categorizedList[ingredient.category].push(ingredient);
+  });
+  
+  return {
+    ingredients: allIngredients,
+    totalEstimatedCost: totalCost,
+    categorizedList
+  };
+}
+
+function categorizeIngredientBasic(name: string): string {
+  const lowerName = name.toLowerCase();
+  
+  if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || 
+      lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('shrimp') || 
+      lowerName.includes('tuna')) {
+    return 'Meat & Seafood';
+  }
+  
+  if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || 
+      lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
+    return 'Dairy & Eggs';
+  }
+  
+  if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('avocado') || 
+      lowerName.includes('garlic') || lowerName.includes('cucumber') || lowerName.includes('greens') || 
+      lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
+    return 'Produce';
+  }
+  
+  if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || 
+      lowerName.includes('tortilla')) {
+    return 'Grains & Bakery';
+  }
+  
+  if (lowerName.includes('can') || lowerName.includes('beans') || lowerName.includes('broth')) {
+    return 'Canned/Packaged';
+  }
+  
+  if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || 
+      lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
+    return 'Pantry Staples';
+  }
+  
+  return 'Other';
+}
+
+function estimatePriceBasic(name: string, quantity: number): number {
+  const lowerName = name.toLowerCase();
+  
+  // Basic price estimation
+  if (lowerName.includes('chicken') || lowerName.includes('salmon')) return quantity * 4.00;
+  if (lowerName.includes('avocado')) return quantity * 1.50;
+  if (lowerName.includes('onion')) return quantity * 0.75;
+  if (lowerName.includes('bread')) return quantity * 2.50;
+  if (lowerName.includes('cheese')) return quantity * 3.00;
+  if (lowerName.includes('egg')) return quantity * 0.25;
+  if (lowerName.includes('pasta')) return quantity * 1.50;
+  if (lowerName.includes('rice')) return quantity * 2.00;
+  
+  // Default price
+  return quantity * 2.00;
+}
+
 serve(async (req) => {
   console.log('process-shopping-list function called with method:', req.method);
   
@@ -42,7 +170,11 @@ serve(async (req) => {
 
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+      console.error('OpenAI API key not configured');
+      // Fallback to basic parsing when no OpenAI key
+      return new Response(JSON.stringify(createFallbackShoppingList(ingredients, pantryItems)), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // Flatten all ingredients into a single string
@@ -135,14 +267,25 @@ Make sure quantities are reasonable, names are clear, and prices reflect typical
 
   } catch (error) {
     console.error('Error in process-shopping-list function:', error);
-    return new Response(JSON.stringify({ 
-      error: error.message,
-      ingredients: [], 
-      totalEstimatedCost: 0, 
-      categorizedList: {} 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    
+    // If OpenAI fails, fall back to basic processing
+    try {
+      console.log('OpenAI failed, falling back to basic processing');
+      const fallbackResult = createFallbackShoppingList(ingredients, pantryItems);
+      return new Response(JSON.stringify(fallbackResult), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } catch (fallbackError) {
+      console.error('Fallback processing also failed:', fallbackError);
+      return new Response(JSON.stringify({ 
+        error: 'Shopping list processing failed',
+        ingredients: [], 
+        totalEstimatedCost: 0, 
+        categorizedList: {} 
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
   }
 });
