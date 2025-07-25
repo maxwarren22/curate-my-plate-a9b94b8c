@@ -433,10 +433,14 @@ Return ONLY a JSON array with 7 objects:
         const selectedRecipe = recipePool[selection.selectedIndex];
         if (selectedRecipe) {
           const convertedRecipe = await convertSpoonacularToRecipe(selectedRecipe, true);
+          
+          // Generate a simple side dish for each meal
+          const sideDish = await generateSimpleSideDish(selectedRecipe);
+          
           mealPlan.push({
             day: selection.day,
             main_dish: convertedRecipe,
-            side_dish: null,
+            side_dish: sideDish,
             total_time_to_cook: `${selectedRecipe.readyInMinutes || 30} minutes`,
             cooking_tips: `${selection.reason} Recipe from Spoonacular.`
           });
@@ -452,6 +456,38 @@ Return ONLY a JSON array with 7 objects:
   // Fallback to simple selection
   console.log('🔄 Falling back to simple selection');
   return selectMealPlanSimple(recipePool);
+}
+
+async function generateSimpleSideDish(mainRecipe: SpoonacularRecipe): Promise<any> {
+  // Generate simple side dishes based on main dish type
+  const sideDishes = {
+    'chicken': { title: 'Steamed Broccoli', ingredients: '1 head broccoli\n2 tbsp olive oil\nSalt and pepper to taste', recipe: '1. Steam broccoli for 5-7 minutes\n2. Drizzle with olive oil\n3. Season with salt and pepper', calories: 55 },
+    'beef': { title: 'Garlic Mashed Potatoes', ingredients: '2 lbs potatoes\n4 cloves garlic\n1/4 cup butter\n1/2 cup milk\nSalt to taste', recipe: '1. Boil potatoes until tender\n2. Mash with garlic, butter, and milk\n3. Season with salt', calories: 180 },
+    'pasta': { title: 'Caesar Salad', ingredients: '1 head romaine lettuce\n1/4 cup parmesan cheese\n2 tbsp caesar dressing\nCroutons', recipe: '1. Chop romaine lettuce\n2. Add parmesan and croutons\n3. Toss with dressing', calories: 85 },
+    'fish': { title: 'Lemon Rice', ingredients: '1 cup rice\n2 cups water\n1 lemon (juiced)\n2 tbsp butter\nSalt to taste', recipe: '1. Cook rice according to package directions\n2. Stir in lemon juice and butter\n3. Season with salt', calories: 160 },
+    'default': { title: 'Mixed Green Salad', ingredients: '4 cups mixed greens\n1 tomato\n1/2 cucumber\n2 tbsp vinaigrette', recipe: '1. Combine mixed greens, diced tomato, and cucumber\n2. Drizzle with vinaigrette\n3. Toss to combine', calories: 45 }
+  };
+
+  // Determine side dish based on main recipe title
+  const title = mainRecipe.title.toLowerCase();
+  let sideDishKey = 'default';
+  
+  if (title.includes('chicken')) sideDishKey = 'chicken';
+  else if (title.includes('beef') || title.includes('steak')) sideDishKey = 'beef';
+  else if (title.includes('pasta') || title.includes('spaghetti')) sideDishKey = 'pasta';
+  else if (title.includes('fish') || title.includes('salmon') || title.includes('tuna')) sideDishKey = 'fish';
+  
+  const sideDish = sideDishes[sideDishKey];
+  
+  return {
+    id: `side-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    title: sideDish.title,
+    ingredients: sideDish.ingredients,
+    recipe: sideDish.recipe,
+    calories: sideDish.calories,
+    servings: 4,
+    source_type: 'ai'
+  };
 }
 
 async function selectMealPlanSimple(recipePool: SpoonacularRecipe[]): Promise<any[]> {
@@ -479,10 +515,14 @@ async function selectMealPlanSimple(recipePool: SpoonacularRecipe[]): Promise<an
     
     if (selectedRecipe) {
       const convertedRecipe = await convertSpoonacularToRecipe(selectedRecipe, true);
+      
+      // Generate a simple side dish for each meal
+      const sideDish = await generateSimpleSideDish(selectedRecipe);
+      
       mealPlan.push({
         day: days[i],
         main_dish: convertedRecipe,
-        side_dish: null,
+        side_dish: sideDish,
         total_time_to_cook: `${selectedRecipe.readyInMinutes || 30} minutes`,
         cooking_tips: `Randomly selected from recipe pool. Recipe from Spoonacular.`
       });
