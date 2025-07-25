@@ -35,6 +35,64 @@ export type Database = {
         }
         Relationships: []
       }
+      disliked_recipes: {
+        Row: {
+          created_at: string | null
+          id: string
+          recipe_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          recipe_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          recipe_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "disliked_recipes_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      liked_recipes: {
+        Row: {
+          created_at: string | null
+          id: string
+          recipe_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          recipe_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          recipe_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "liked_recipes_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pantry_items: {
         Row: {
           created_at: string
@@ -72,10 +130,13 @@ export type Database = {
           dietary_restrictions: string[] | null
           display_name: string | null
           generations_remaining: number | null
+          health_goals: string | null
           id: string
+          kitchen_equipment: string[] | null
           meal_types: string[] | null
           plan_addons: string[] | null
           plan_generation_day: string | null
+          protein_preferences: string[] | null
           serving_size: string | null
           skill_level: string | null
           subscription_status: string | null
@@ -92,10 +153,13 @@ export type Database = {
           dietary_restrictions?: string[] | null
           display_name?: string | null
           generations_remaining?: number | null
+          health_goals?: string | null
           id?: string
+          kitchen_equipment?: string[] | null
           meal_types?: string[] | null
           plan_addons?: string[] | null
           plan_generation_day?: string | null
+          protein_preferences?: string[] | null
           serving_size?: string | null
           skill_level?: string | null
           subscription_status?: string | null
@@ -112,10 +176,13 @@ export type Database = {
           dietary_restrictions?: string[] | null
           display_name?: string | null
           generations_remaining?: number | null
+          health_goals?: string | null
           id?: string
+          kitchen_equipment?: string[] | null
           meal_types?: string[] | null
           plan_addons?: string[] | null
           plan_generation_day?: string | null
+          protein_preferences?: string[] | null
           serving_size?: string | null
           skill_level?: string | null
           subscription_status?: string | null
@@ -130,6 +197,8 @@ export type Database = {
           calories: number | null
           created_at: string
           created_by_user: string | null
+          description: string | null
+          embedding: string | null
           id: string
           ingredients: string
           recipe: string
@@ -140,6 +209,8 @@ export type Database = {
           calories?: number | null
           created_at?: string
           created_by_user?: string | null
+          description?: string | null
+          embedding?: string | null
           id?: string
           ingredients: string
           recipe: string
@@ -150,6 +221,8 @@ export type Database = {
           calories?: number | null
           created_at?: string
           created_by_user?: string | null
+          description?: string | null
+          embedding?: string | null
           id?: string
           ingredients?: string
           recipe?: string
@@ -160,6 +233,7 @@ export type Database = {
       }
       shopping_lists: {
         Row: {
+          budget: string | null
           created_at: string
           id: string
           shopping_list: Json | null
@@ -167,6 +241,7 @@ export type Database = {
           week_start_date: string
         }
         Insert: {
+          budget?: string | null
           created_at?: string
           id?: string
           shopping_list?: Json | null
@@ -174,6 +249,7 @@ export type Database = {
           week_start_date: string
         }
         Update: {
+          budget?: string | null
           created_at?: string
           id?: string
           shopping_list?: Json | null
@@ -238,7 +314,114 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      binary_quantize: {
+        Args: { "": string } | { "": unknown }
+        Returns: unknown
+      }
+      halfvec_avg: {
+        Args: { "": number[] }
+        Returns: unknown
+      }
+      halfvec_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      halfvec_send: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      halfvec_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
+      hnsw_bit_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnsw_halfvec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnsw_sparsevec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      hnswhandler: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      invoke_send_weekly_plan: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      ivfflat_bit_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      ivfflat_halfvec_support: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      ivfflathandler: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      l2_norm: {
+        Args: { "": unknown } | { "": unknown }
+        Returns: number
+      }
+      l2_normalize: {
+        Args: { "": string } | { "": unknown } | { "": unknown }
+        Returns: unknown
+      }
+      match_recipe: {
+        Args: {
+          query_embedding: string
+          match_threshold: number
+          match_count: number
+        }
+        Returns: {
+          id: string
+          title: string
+          similarity: number
+        }[]
+      }
+      sparsevec_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      sparsevec_send: {
+        Args: { "": unknown }
+        Returns: string
+      }
+      sparsevec_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
+      vector_avg: {
+        Args: { "": number[] }
+        Returns: string
+      }
+      vector_dims: {
+        Args: { "": string } | { "": unknown }
+        Returns: number
+      }
+      vector_norm: {
+        Args: { "": string }
+        Returns: number
+      }
+      vector_out: {
+        Args: { "": string }
+        Returns: unknown
+      }
+      vector_send: {
+        Args: { "": string }
+        Returns: string
+      }
+      vector_typmod_in: {
+        Args: { "": unknown[] }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never
