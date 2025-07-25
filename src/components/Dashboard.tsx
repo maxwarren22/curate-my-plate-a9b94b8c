@@ -310,6 +310,27 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
   };
 
+  // Helper function for categorization - define before useMemo
+  const categorizeIngredient = (name: string): string => {
+    const lowerName = name.toLowerCase();
+    if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey') || lowerName.includes('shrimp') || lowerName.includes('tuna')) {
+        return 'Meat & Seafood';
+    }
+    if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
+        return 'Dairy & Eggs';
+    }
+    if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic') || lowerName.includes('avocado') || lowerName.includes('cucumber') || lowerName.includes('greens') || lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
+        return 'Produce';
+    }
+    if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal') || lowerName.includes('tortilla')) {
+        return 'Grains & Bakery';
+    }
+    if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar') || lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
+        return 'Pantry Staples';
+    }
+    return 'Other';
+  };
+
   const adjustedShoppingList = useMemo(() => {
     console.log("🛒 SHOPPING LIST DEBUG - START");
     console.log("📅 Weekly plan:", weeklyPlan);
@@ -456,26 +477,6 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     return categorizedList;
   }, [weeklyPlan, pantryItems]);
 
-  // Helper function for categorization
-  const categorizeIngredient = (name: string): string => {
-    const lowerName = name.toLowerCase();
-    if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey') || lowerName.includes('shrimp') || lowerName.includes('tuna')) {
-        return 'Meat & Seafood';
-    }
-    if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
-        return 'Dairy & Eggs';
-    }
-    if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic') || lowerName.includes('avocado') || lowerName.includes('cucumber') || lowerName.includes('greens') || lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
-        return 'Produce';
-    }
-    if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal') || lowerName.includes('tortilla')) {
-        return 'Grains & Bakery';
-    }
-    if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar') || lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
-        return 'Pantry Staples';
-    }
-    return 'Other';
-  };
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/30">
