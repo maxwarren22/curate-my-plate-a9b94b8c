@@ -320,7 +320,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         return [];
     }
 
-    const requiredItems = new Map<string, { quantity: number; unit: string }>();
+    const requiredItems = new Map<string, { quantity: number; unit: string; originalName: string }>();
 
     for (const ingredientString of allIngredients) {
         // Split by newlines and process each ingredient line
@@ -331,35 +331,31 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                 const cleanLine = line.trim();
                 if (!cleanLine) continue;
                 
-                // Simple regex to extract quantity and ingredient name
-                const match = cleanLine.match(/^(\d+(?:\.\d+)?)\s*(.*)|^(.+)$/);
+                // Extract quantity and ingredient name more carefully
+                const quantityMatch = cleanLine.match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
                 
                 let quantity = 1;
-                let ingredientName = cleanLine.toLowerCase();
+                let ingredientName = cleanLine;
                 
-                if (match) {
-                    if (match[1] && match[2]) {
-                        // Has quantity like "2 chicken breasts"
-                        quantity = parseFloat(match[1]) || 1;
-                        ingredientName = match[2].toLowerCase().trim();
-                    } else if (match[3]) {
-                        // No quantity like "salt" or "pepper"
-                        quantity = 1;
-                        ingredientName = match[3].toLowerCase().trim();
-                    }
+                if (quantityMatch) {
+                    quantity = parseFloat(quantityMatch[1]) || 1;
+                    ingredientName = quantityMatch[2];
                 }
 
-                // Remove common measurement words and clean up
-                ingredientName = ingredientName
-                    .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?)\b/g, '')
+                // Keep the original name for display, create normalized name for matching
+                const originalName = ingredientName.trim();
+                const normalizedName = ingredientName
+                    .toLowerCase()
+                    .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?|chopped|diced|minced|fresh|dried|large|medium|small)\b/g, '')
                     .replace(/\s+/g, ' ')
                     .trim();
 
-                if (ingredientName && ingredientName.length > 0) {
-                    if (requiredItems.has(ingredientName)) {
-                        requiredItems.get(ingredientName)!.quantity += quantity;
+                if (normalizedName && normalizedName.length > 2) {
+                    const key = normalizedName;
+                    if (requiredItems.has(key)) {
+                        requiredItems.get(key)!.quantity += quantity;
                     } else {
-                        requiredItems.set(ingredientName, { quantity, unit: 'item' });
+                        requiredItems.set(key, { quantity, unit: 'item', originalName });
                     }
                 }
             } catch (e) {
@@ -371,31 +367,83 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     // Create pantry map with normalized names
     const pantryMap = new Map<string, number>();
     pantryItems.forEach(item => {
-        const normalizedName = item.ingredient_name.toLowerCase().trim();
+        const normalizedName = item.ingredient_name
+            .toLowerCase()
+            .replace(/\b(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?|bunch|head|pieces?|chopped|diced|minced|fresh|dried|large|medium|small)\b/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
         pantryMap.set(normalizedName, parseFloat(item.quantity) || 0);
     });
 
-    const shoppingListItems: string[] = [];
-    requiredItems.forEach((item, name) => {
+    // Categorize ingredients
+    const categorizeIngredient = (name: string): string => {
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey')) {
+            return 'Meat & Seafood';
+        }
+        if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('eggs')) {
+            return 'Dairy & Eggs';
+        }
+        if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic')) {
+            return 'Produce';
+        }
+        if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal')) {
+            return 'Grains & Bakery';
+        }
+        if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar')) {
+            return 'Pantry Staples';
+        }
+        return 'Other';
+    };
+
+    const categorizedItems = new Map<string, string[]>();
+    let totalEstimatedCost = 0;
+
+    requiredItems.forEach((item, normalizedName) => {
         const needed = item.quantity;
-        const inPantry = pantryMap.get(name) || 0;
+        const inPantry = pantryMap.get(normalizedName) || 0;
         const toBuy = needed - inPantry;
 
         if (toBuy > 0) {
-            // Format the display nicely
             const displayQuantity = toBuy % 1 === 0 ? Math.floor(toBuy) : toBuy.toFixed(1);
-            shoppingListItems.push(`${displayQuantity} ${name}`);
+            const displayItem = `${displayQuantity} ${item.originalName}`;
+            
+            const category = categorizeIngredient(item.originalName);
+            if (!categorizedItems.has(category)) {
+                categorizedItems.set(category, []);
+            }
+            categorizedItems.get(category)!.push(displayItem);
+            
+            // Simple cost estimation - $2-5 per item on average
+            totalEstimatedCost += toBuy * 3.5;
         }
     });
-    
-    // Sort items alphabetically and categorize
-    shoppingListItems.sort();
-    const categorizedList = [{ 
-        category: "Shopping List", 
-        items: shoppingListItems.length > 0 ? shoppingListItems : ["All ingredients are in your pantry!"] 
-    }];
 
-    return categorizedList;
+    // Set budget estimate
+    if (totalEstimatedCost > 0) {
+        setShoppingListBudget(`$${Math.round(totalEstimatedCost)}`);
+    } else {
+        setShoppingListBudget(null);
+    }
+
+    // Convert to array format
+    const categorizedList = Array.from(categorizedItems.entries()).map(([category, items]) => ({
+        category,
+        items: items.sort()
+    }));
+
+    // Sort categories by typical shopping order
+    const categoryOrder = ['Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Grains & Bakery', 'Pantry Staples', 'Other'];
+    categorizedList.sort((a, b) => {
+        const aIndex = categoryOrder.indexOf(a.category);
+        const bIndex = categoryOrder.indexOf(b.category);
+        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    });
+
+    return categorizedList.length > 0 ? categorizedList : [{ 
+        category: "Shopping List", 
+        items: ["All ingredients are in your pantry!"] 
+    }];
   }, [weeklyPlan, pantryItems]);
   
   return (
