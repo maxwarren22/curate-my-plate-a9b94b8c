@@ -567,8 +567,8 @@ async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pant
       .upsert({
         user_id: userId,
         week_start_date: getWeekStartDate(),
-        shopping_list: allIngredients,
-        ai_processed_ingredients: processedList
+        shopping_list: processedList?.categorizedList || {},
+        ai_processed_ingredients: processedList?.ingredients || []
       }, { onConflict: 'user_id,week_start_date' });
 
     if (shoppingError) {
