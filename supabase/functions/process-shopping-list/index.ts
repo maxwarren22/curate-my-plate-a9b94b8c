@@ -271,6 +271,7 @@ Make sure quantities are reasonable, names are clear, and prices reflect typical
     // If OpenAI fails, fall back to basic processing
     try {
       console.log('OpenAI failed, falling back to basic processing');
+      const { ingredients, pantryItems = [] } = await req.json();
       const fallbackResult = createFallbackShoppingList(ingredients, pantryItems);
       return new Response(JSON.stringify(fallbackResult), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
