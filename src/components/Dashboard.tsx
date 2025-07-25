@@ -324,7 +324,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         .from('shopping_lists')
         .select('*')
         .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
+        .order('week_start_date', { ascending: false })
         .limit(1)
         .maybeSingle();
 
