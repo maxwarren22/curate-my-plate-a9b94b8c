@@ -123,6 +123,7 @@ serve(async (req) => {
     await saveMealPlanToDatabase(user.id, completeMealPlan);
 
     // Step 5: Generate and save shopping list
+    console.log('🛒 About to generate shopping list...');
     await generateAndSaveShoppingList(user.id, completeMealPlan, pantryItems);
 
     console.log('Meal plan generation completed successfully');
