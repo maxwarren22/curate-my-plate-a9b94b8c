@@ -171,9 +171,12 @@ async function saveOrGetRecipe(supabaseClient: SupabaseClient, dish: Recipe, use
 }
 
 async function generateShoppingListWithAI(mealPlan: MealDay[], supabaseClient: SupabaseClient, userId: string): Promise<void> {
+    log("INFO", "Starting shopping list generation...");
+    
     const openAIApiKey = Deno.env.get("OPENAI_API_KEY");
     if (!openAIApiKey) {
-        log("ERROR", "OpenAI API key not configured for shopping list generation");
+        log("ERROR", "OpenAI API key not configured for shopping list generation - using fallback");
+        await generateFallbackShoppingList(mealPlan, supabaseClient, userId);
         return;
     }
 
@@ -315,6 +318,118 @@ Make sure quantities are reasonable, names are clear, and prices reflect typical
         log("ERROR", "Error generating shopping list with AI", { error });
         throw error;
     }
+}
+
+async function generateFallbackShoppingList(mealPlan: MealDay[], supabaseClient: SupabaseClient, userId: string): Promise<void> {
+    log("INFO", "Generating fallback shopping list...");
+    
+    // Collect all ingredients from meal plan
+    const allIngredients: string[] = [];
+    mealPlan.forEach(day => {
+        if (day.main_dish?.ingredients) {
+            if (Array.isArray(day.main_dish.ingredients)) {
+                allIngredients.push(...day.main_dish.ingredients);
+            } else {
+                allIngredients.push(day.main_dish.ingredients);
+            }
+        }
+        if (day.side_dish?.ingredients) {
+            if (Array.isArray(day.side_dish.ingredients)) {
+                allIngredients.push(...day.side_dish.ingredients);
+            } else {
+                allIngredients.push(day.side_dish.ingredients);
+            }
+        }
+    });
+
+    // Basic categorization function
+    const categorizeIngredient = (name: string): string => {
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('shrimp')) {
+            return 'Meat & Seafood';
+        }
+        if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('egg')) {
+            return 'Dairy & Eggs';
+        }
+        if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('avocado') || lowerName.includes('garlic') || lowerName.includes('cucumber') || lowerName.includes('lettuce') || lowerName.includes('fruits') || lowerName.includes('lemon') || lowerName.includes('lime')) {
+            return 'Produce';
+        }
+        if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('tortilla')) {
+            return 'Grains & Bakery';
+        }
+        if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('seasoning')) {
+            return 'Pantry Staples';
+        }
+        return 'Other';
+    };
+
+    // Process ingredients into shopping list format
+    const processedIngredients: any[] = [];
+    const seenIngredients = new Set<string>();
+    let totalCost = 0;
+
+    allIngredients.forEach(ingredient => {
+        const cleanIngredient = ingredient.trim().toLowerCase();
+        if (!cleanIngredient || seenIngredients.has(cleanIngredient)) return;
+        
+        seenIngredients.add(cleanIngredient);
+        const category = categorizeIngredient(cleanIngredient);
+        const estimatedPrice = 2.50; // Basic price estimate
+        
+        processedIngredients.push({
+            name: ingredient.trim(),
+            quantity: "1",
+            category,
+            estimatedPrice
+        });
+        
+        totalCost += estimatedPrice;
+    });
+
+    // Group by category for storage
+    const categorizedList: Record<string, any[]> = {};
+    processedIngredients.forEach(ingredient => {
+        if (!categorizedList[ingredient.category]) {
+            categorizedList[ingredient.category] = [];
+        }
+        categorizedList[ingredient.category].push({
+            name: ingredient.name,
+            quantity: ingredient.quantity,
+            estimatedPrice: ingredient.estimatedPrice
+        });
+    });
+
+    // Save to shopping_lists table
+    const weekStartDate = new Date().toISOString().split('T')[0];
+    const shoppingListData = {
+        user_id: userId,
+        week_start_date: weekStartDate,
+        shopping_list: Object.entries(categorizedList).map(([category, items]) => ({
+            category,
+            items: items.map(item => `${item.quantity} ${item.name}`)
+        })),
+        budget: `$${Math.round(totalCost)}`,
+        ai_processed_ingredients: processedIngredients
+    };
+
+    // Delete old shopping list for this week
+    await supabaseClient
+        .from('shopping_lists')
+        .delete()
+        .eq('user_id', userId)
+        .eq('week_start_date', weekStartDate);
+
+    // Insert new shopping list
+    const { error: insertError } = await supabaseClient
+        .from('shopping_lists')
+        .insert(shoppingListData);
+
+    if (insertError) {
+        log("ERROR", "Failed to save fallback shopping list", { error: insertError });
+        throw insertError;
+    }
+
+    log("INFO", "Fallback shopping list saved successfully", { userId, totalCost, ingredientCount: processedIngredients.length });
 }
 
 
