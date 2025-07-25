@@ -483,22 +483,36 @@ async function saveMealPlanToDatabase(userId: string, mealPlan: any[]): Promise<
 }
 
 async function generateAndSaveShoppingList(userId: string, mealPlan: any[], pantryItems: string[]): Promise<void> {
+  console.log('🛒 === SHOPPING LIST GENERATION START ===');
+  console.log('Meal plan length:', mealPlan.length);
+  
   // Collect all ingredients from the meal plan
   const allIngredients: string[] = [];
   
   for (const day of mealPlan) {
+    console.log('Processing day:', day.day);
+    console.log('Main dish:', day.main_dish?.title, 'has ingredients:', !!day.main_dish?.ingredients);
+    console.log('Side dish:', day.side_dish?.title, 'has ingredients:', !!day.side_dish?.ingredients);
+    
     if (day.main_dish?.ingredients) {
       allIngredients.push(day.main_dish.ingredients);
+      console.log('✅ Added main dish ingredients');
+    } else {
+      console.log('❌ No main dish ingredients found');
     }
+    
     if (day.side_dish?.ingredients) {
       allIngredients.push(day.side_dish.ingredients);
+      console.log('✅ Added side dish ingredients');
+    } else {
+      console.log('❌ No side dish ingredients found');
     }
   }
 
-  console.log('Collected ingredients for shopping list:', allIngredients.length, 'ingredient blocks');
+  console.log('🧾 Collected ingredients for shopping list:', allIngredients.length, 'ingredient blocks');
 
   if (allIngredients.length === 0) {
-    console.log('No ingredients found, creating empty shopping list');
+    console.log('❌ No ingredients found, creating empty shopping list');
     const { error: shoppingError } = await supabase
       .from('shopping_lists')
       .upsert({
