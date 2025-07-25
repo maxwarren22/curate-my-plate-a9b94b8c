@@ -107,6 +107,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         `)
         .eq('user_id', user.id)
         .order('meal_date', { ascending: true })
+        .gte('meal_date', new Date().toISOString().split('T')[0]) // Only get current and future meals
         .limit(7);
 
       if (mealError) throw mealError;
@@ -184,9 +185,10 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
 
         if (data.mealPlan) {
             setWeeklyPlan(data.mealPlan);
-            // The shopping list is now calculated on the client-side via useMemo
             toast({ title: "Success!", description: "Your new meal plan is ready." });
             await checkSubscription();
+            // Reload the complete data to get the new shopping list
+            await loadInitialData();
         } else {
             throw new Error(data.error || "Failed to get meal plan data from server.");
         }
@@ -322,8 +324,9 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         .from('shopping_lists')
         .select('*')
         .eq('user_id', user?.id)
-        .eq('week_start_date', weekStartDate)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error && error.code !== 'PGRST116') { // PGRST116 means no rows found
         console.error('Error loading shopping list:', error);
