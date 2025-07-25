@@ -32,7 +32,15 @@ interface SpoonacularRecipe {
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-const spoonacularApiKey = Deno.env.get('SPOONACULAR_API_KEY')!;
+const spoonacularApiKey = Deno.env.get('SPOONACULAR_API_KEY');
+
+console.log('Environment check:', {
+  hasSupabaseUrl: !!supabaseUrl,
+  hasServiceKey: !!supabaseServiceKey,
+  hasOpenAI: !!openAIApiKey,
+  hasSpoonacular: !!spoonacularApiKey,
+  spoonacularKeyLength: spoonacularApiKey?.length || 0
+});
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -123,6 +131,9 @@ serve(async (req) => {
 });
 
 async function generateMealConcepts(profile: any, pantryItems: string[], dislikedIngredients: string[]): Promise<MealConcept[]> {
+  console.log('=== GENERATING MEAL CONCEPTS ===');
+  console.log('OpenAI API Key available:', !!openAIApiKey);
+  
   if (!openAIApiKey) {
     console.log('No OpenAI API key, using fallback meal concepts');
     return getFallbackMealConcepts();
@@ -147,6 +158,7 @@ Return ONLY a JSON array with 7 objects, each containing:
 }`;
 
   try {
+    console.log('Calling OpenAI for meal concepts...');
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -160,14 +172,23 @@ Return ONLY a JSON array with 7 objects, each containing:
       }),
     });
 
+    console.log('OpenAI response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`OpenAI request failed: ${response.status}`);
+    }
+
     const data = await response.json();
     const content = data.choices[0].message.content;
     
     // Clean the JSON response
     const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
-    return JSON.parse(cleanContent);
+    const concepts = JSON.parse(cleanContent);
+    console.log('Generated meal concepts:', concepts.length);
+    return concepts;
   } catch (error) {
     console.error('Error generating meal concepts:', error);
+    console.log('Falling back to default concepts');
     return getFallbackMealConcepts();
   }
 }
