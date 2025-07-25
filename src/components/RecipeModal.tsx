@@ -78,7 +78,7 @@ export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
     const checkFeedbackStatus = async () => {
       if (!user || !isOpen) return;
       
-      const recipeIds = [mealDay.main_dish.id, mealDay.side_dish.id];
+      const recipeIds = [mealDay.main_dish.id, mealDay.side_dish?.id].filter(Boolean);
       
       const { data: liked } = await supabase
         .from('liked_recipes')
@@ -131,14 +131,14 @@ export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
               {mealDay.main_dish.title}
             </DialogTitle>
             <DialogDescription className="text-lg text-muted-foreground">
-              with {mealDay.side_dish.title}
+              with {mealDay.side_dish?.title || 'No side dish'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-wrap gap-2 mb-6">
             <Badge variant="secondary">⏱️ {mealDay.total_time_to_cook}</Badge>
             <Badge variant="outline">🍽️ Serves {mealDay.main_dish.servings}</Badge>
-            <Badge variant="secondary">🔥 {mealDay.main_dish.calories + mealDay.side_dish.calories} total cal</Badge>
+            <Badge variant="secondary">🔥 {mealDay.main_dish.calories + (mealDay.side_dish?.calories || 0)} total cal</Badge>
           </div>
           
           {mealDay.cooking_tips && (
@@ -164,18 +164,22 @@ export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
                     </li>
                   ))}
                 </ul>
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-medium text-muted-foreground">{mealDay.side_dish.title}</h4>
-                  {renderFeedbackButtons(mealDay.side_dish)}
-                </div>
-                <ul className="space-y-2">
-                  {formatListFromString(mealDay.side_dish.ingredients).map((item, index) => (
-                    <li key={`side-ing-${index}`} className="flex gap-2 items-start text-sm">
-                      <Check className="w-4 h-4 text-secondary mt-0.5 flex-shrink-0" />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                {mealDay.side_dish && (
+                  <>
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="font-medium text-muted-foreground">{mealDay.side_dish.title}</h4>
+                      {renderFeedbackButtons(mealDay.side_dish)}
+                    </div>
+                    <ul className="space-y-2">
+                      {formatListFromString(mealDay.side_dish.ingredients).map((item, index) => (
+                        <li key={`side-ing-${index}`} className="flex gap-2 items-start text-sm">
+                          <Check className="w-4 h-4 text-secondary mt-0.5 flex-shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
             </div>
 
@@ -197,19 +201,21 @@ export const RecipeModal = ({ mealDay, isOpen, onClose }: RecipeModalProps) => {
 
               <Separator />
 
-              <div>
-                <h4 className="font-medium mb-3 text-muted-foreground">{mealDay.side_dish.title}</h4>
-                <ol className="space-y-3">
-                  {formatRecipeSteps(mealDay.side_dish.recipe).map((step, index) => (
-                    <li key={`side-step-${index}`} className="flex gap-3 items-start">
-                      <div className="w-6 h-6 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 mt-1">
-                        {index + 1}
-                      </div>
-                      <span className="text-sm text-card-foreground leading-relaxed">{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
+              {mealDay.side_dish && (
+                <div>
+                  <h4 className="font-medium mb-3 text-muted-foreground">{mealDay.side_dish.title}</h4>
+                  <ol className="space-y-3">
+                    {formatRecipeSteps(mealDay.side_dish.recipe).map((step, index) => (
+                      <li key={`side-step-${index}`} className="flex gap-3 items-start">
+                        <div className="w-6 h-6 bg-secondary text-secondary-foreground rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 mt-1">
+                          {index + 1}
+                        </div>
+                        <span className="text-sm text-card-foreground leading-relaxed">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </div>
           </div>
         </ScrollArea>
