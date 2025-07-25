@@ -312,34 +312,44 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
 
   const adjustedShoppingList = useMemo(() => {
     console.log("🛒 SHOPPING LIST DEBUG - START");
+    console.log("📅 Weekly plan:", weeklyPlan);
     console.log("📅 Weekly plan length:", weeklyPlan.length);
     console.log("🥫 Pantry items:", pantryItems);
 
     if (weeklyPlan.length === 0) {
-        console.log("❌ No weekly plan found");
+        console.log("❌ No weekly plan found - returning empty");
         return [];
     }
 
-    const allIngredients = weeklyPlan.flatMap(day => [
-        ...(day.main_dish?.ingredients || []),
-        ...(day.side_dish?.ingredients || []),
-    ]);
+    const allIngredients = weeklyPlan.flatMap(day => {
+        console.log("Processing day:", day.day, "Main dish:", day.main_dish?.title, "Side dish:", day.side_dish?.title);
+        const mainIngredients = day.main_dish?.ingredients ? [day.main_dish.ingredients] : [];
+        const sideIngredients = day.side_dish?.ingredients ? [day.side_dish.ingredients] : [];
+        console.log("Main ingredients:", mainIngredients);
+        console.log("Side ingredients:", sideIngredients);
+        return [...mainIngredients, ...sideIngredients];
+    });
 
     console.log("🥕 All raw ingredients:", allIngredients);
 
     if (allIngredients.length === 0) {
-        console.log("❌ No ingredients found in recipes");
+        console.log("❌ No ingredients found in recipes - returning empty");
         return [];
     }
 
     const requiredItems = new Map<string, { quantity: number; originalName: string }>();
 
     for (const ingredientString of allIngredients) {
-        if (!ingredientString) continue;
+        if (!ingredientString) {
+            console.log("⚠️ Empty ingredient string, skipping");
+            continue;
+        }
+        
+        console.log("📝 Processing ingredient string:", ingredientString);
         
         // Split by newlines and process each ingredient line
         const ingredientLines = ingredientString.split('\n').filter(line => line.trim());
-        console.log("📝 Processing ingredient string:", ingredientString, "->", ingredientLines);
+        console.log("📝 Split into lines:", ingredientLines);
         
         for (const line of ingredientLines) {
             const cleanLine = line.trim();
@@ -359,66 +369,36 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
             // Keep original name for display, create a normalized key for matching
             const originalName = ingredientName.trim();
             
-            // For matching, just normalize case and basic cleanup - don't remove too much
+            // For matching, just normalize case and basic cleanup
             let normalizedKey = ingredientName.toLowerCase().trim();
-            
-            // Only remove measurements if they're at the beginning, preserve the main ingredient name
-            normalizedKey = normalizedKey
-                .replace(/^(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?)\s+/i, '')
-                .replace(/\s+/g, ' ')
-                .trim();
             
             console.log(`🔍 Line: "${cleanLine}" -> qty: ${quantity}, original: "${originalName}", key: "${normalizedKey}"`);
 
-            if (normalizedKey.length > 2) {
+            if (normalizedKey.length > 0) {
                 if (requiredItems.has(normalizedKey)) {
-                    requiredItems.get(normalizedKey)!.quantity += quantity;
+                    const existing = requiredItems.get(normalizedKey)!;
+                    existing.quantity += quantity;
+                    console.log(`📈 Updated "${normalizedKey}" quantity to ${existing.quantity}`);
                 } else {
                     requiredItems.set(normalizedKey, { quantity, originalName });
+                    console.log(`➕ Added "${normalizedKey}" with quantity ${quantity}`);
                 }
             }
         }
     }
 
-    console.log("📊 Required items:", Array.from(requiredItems.entries()));
+    console.log("📊 Required items final:", Array.from(requiredItems.entries()));
 
     // Create pantry map with similar normalization
     const pantryMap = new Map<string, number>();
     pantryItems.forEach(item => {
         let normalizedKey = item.ingredient_name.toLowerCase().trim();
-        // Apply same normalization as above
-        normalizedKey = normalizedKey
-            .replace(/^(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?)\s+/i, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-            
         const qty = parseFloat(item.quantity) || 0;
         pantryMap.set(normalizedKey, qty);
         console.log(`🥫 Pantry: "${item.ingredient_name}" -> key: "${normalizedKey}", qty: ${qty}`);
     });
 
-    console.log("🗃️ Pantry map:", Array.from(pantryMap.entries()));
-
-    // Categorize ingredients
-    const categorizeIngredient = (name: string): string => {
-        const lowerName = name.toLowerCase();
-        if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey') || lowerName.includes('shrimp') || lowerName.includes('tuna')) {
-            return 'Meat & Seafood';
-        }
-        if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
-            return 'Dairy & Eggs';
-        }
-        if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic') || lowerName.includes('avocado') || lowerName.includes('cucumber') || lowerName.includes('greens') || lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
-            return 'Produce';
-        }
-        if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal') || lowerName.includes('tortilla')) {
-            return 'Grains & Bakery';
-        }
-        if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar') || lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
-            return 'Pantry Staples';
-        }
-        return 'Other';
-    };
+    console.log("🗃️ Pantry map final:", Array.from(pantryMap.entries()));
 
     // Calculate what to buy and categorize
     const categorizedItems = new Map<string, string[]>();
@@ -435,21 +415,22 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
             const displayQuantity = toBuy % 1 === 0 ? Math.floor(toBuy) : toBuy.toFixed(1);
             const displayItem = `${displayQuantity} ${item.originalName}`;
             
+            // Simple categorization
             const category = categorizeIngredient(item.originalName);
             if (!categorizedItems.has(category)) {
                 categorizedItems.set(category, []);
             }
             categorizedItems.get(category)!.push(displayItem);
             
-            // Simple cost estimation
             totalEstimatedCost += toBuy * 3.5;
+            console.log(`➕ Added to buy: "${displayItem}" in category "${category}"`);
         }
     });
 
-    console.log("🛍️ Categorized items:", Array.from(categorizedItems.entries()));
+    console.log("🛍️ Categorized items final:", Array.from(categorizedItems.entries()));
 
     if (categorizedItems.size === 0) {
-        console.log("✅ All ingredients are in pantry");
+        console.log("✅ All ingredients are in pantry - showing message");
         setShoppingListBudget(null);
         return [{ category: "Shopping List", items: ["All ingredients are in your pantry!"] }];
     }
@@ -474,6 +455,27 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     console.log("✅ Final shopping list with categories:", categorizedList);
     return categorizedList;
   }, [weeklyPlan, pantryItems]);
+
+  // Helper function for categorization
+  const categorizeIngredient = (name: string): string => {
+    const lowerName = name.toLowerCase();
+    if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey') || lowerName.includes('shrimp') || lowerName.includes('tuna')) {
+        return 'Meat & Seafood';
+    }
+    if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
+        return 'Dairy & Eggs';
+    }
+    if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic') || lowerName.includes('avocado') || lowerName.includes('cucumber') || lowerName.includes('greens') || lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
+        return 'Produce';
+    }
+    if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal') || lowerName.includes('tortilla')) {
+        return 'Grains & Bakery';
+    }
+    if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar') || lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
+        return 'Pantry Staples';
+    }
+    return 'Other';
+  };
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/30">
