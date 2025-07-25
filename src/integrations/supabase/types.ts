@@ -372,6 +372,44 @@ export type Database = {
           },
         ]
       }
+      user_recipe_pools: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          recipe_pool_id: string
+          scored_recipes: Json
+          user_id: string
+          user_pool_hash: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          recipe_pool_id: string
+          scored_recipes: Json
+          user_id: string
+          user_pool_hash: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          recipe_pool_id?: string
+          scored_recipes?: Json
+          user_id?: string
+          user_pool_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_recipe_pools_recipe_pool_id_fkey"
+            columns: ["recipe_pool_id"]
+            isOneToOne: false
+            referencedRelation: "recipe_pools"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

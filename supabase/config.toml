@@ -1,1 +1,53 @@
 project_id = "bgppdlqgiuvrdydrvbko"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[auth]
+enabled = true
+port = 54324
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://lovableproject.com"]
+jwt_expiry = 3600
+refresh_token_rotation_enabled = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[functions.create-recipe-pools]
+verify_jwt = false
+
+[functions.create-user-pool]
+verify_jwt = true
+
+[functions.generate-weekly-plan]
+verify_jwt = true
+
+[functions.check-subscription]
+verify_jwt = true
+
+[functions.create-checkout]
+verify_jwt = true
+
+[functions.customer-portal]
+verify_jwt = true
+
+[functions.generate-meal-plan]
+verify_jwt = true
+
+[functions.generate-pdf]
+verify_jwt = true
+
+[functions.process-shopping-list]
+verify_jwt = true
+
+[functions.send-weekly-plan]
+verify_jwt = false
