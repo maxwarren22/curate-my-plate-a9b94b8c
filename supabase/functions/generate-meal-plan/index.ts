@@ -63,6 +63,11 @@ serve(async (req) => {
     }
 
     console.log('Starting meal plan generation for user:', user.id);
+    console.log('API Keys available:', { 
+      openAI: !!openAIApiKey, 
+      spoonacular: !!spoonacularApiKey,
+      spoonacularLength: spoonacularApiKey?.length || 0 
+    });
 
     // Get user profile for preferences
     const { data: profile } = await supabase
@@ -235,10 +240,12 @@ async function searchSpoonacularRecipe(
 ): Promise<SpoonacularRecipe | null> {
   try {
     if (!spoonacularApiKey) {
-      console.log('No Spoonacular API key available, skipping recipe search');
+      console.log('❌ No Spoonacular API key available, skipping recipe search');
       return null;
     }
 
+    console.log('🔍 Searching Spoonacular for:', dishConcept);
+    
     const excludeIngredients = dislikedIngredients.join(',');
     const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
     
@@ -248,21 +255,21 @@ async function searchSpoonacularRecipe(
       `cuisine=${encodeURIComponent(cuisine)}&` +
       `diet=${encodeURIComponent(diet)}&` +
       `excludeIngredients=${encodeURIComponent(excludeIngredients)}&` +
-      `number=1&` +
+      `number=3&` +
       `addRecipeInformation=true&` +
       `addRecipeInstructions=true&` +
       `addRecipeNutrition=true`;
 
-    console.log('Searching Spoonacular for:', dishConcept, 'with cuisine:', cuisine);
+    console.log('🌐 Calling Spoonacular API...');
     const response = await fetch(searchUrl);
     
     if (!response.ok) {
-      console.error('Spoonacular API error:', response.status, response.statusText);
+      console.error('❌ Spoonacular API error:', response.status, response.statusText);
       return null;
     }
     
     const data = await response.json();
-    console.log('Spoonacular response for', dishConcept, ':', data.results?.length || 0, 'results');
+    console.log('✅ Spoonacular response:', data.results?.length || 0, 'results for', dishConcept);
 
     if (data.results && data.results.length > 0) {
       return data.results[0];
@@ -270,7 +277,7 @@ async function searchSpoonacularRecipe(
 
     return null;
   } catch (error) {
-    console.error('Error searching Spoonacular:', error);
+    console.error('❌ Error searching Spoonacular:', error);
     return null;
   }
 }
