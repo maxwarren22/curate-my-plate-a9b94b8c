@@ -241,7 +241,15 @@ Make sure quantities are reasonable, names are clear, and prices reflect typical
     console.log('OpenAI response content:', content);
     let parsedResult;
     try {
-      parsedResult = JSON.parse(content);
+      // Strip markdown code block formatting if present
+      let cleanContent = content.trim();
+      if (cleanContent.startsWith('```json')) {
+        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanContent.startsWith('```')) {
+        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      
+      parsedResult = JSON.parse(cleanContent);
       console.log('Successfully parsed OpenAI response:', parsedResult);
     } catch (e) {
       console.error('Failed to parse OpenAI response as JSON:', e);
