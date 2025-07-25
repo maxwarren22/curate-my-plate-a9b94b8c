@@ -356,16 +356,25 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                 ingredientName = quantityMatch[2];
             }
 
-            // Simple normalization - just lowercase and trim
-            const normalizedName = ingredientName.toLowerCase().trim();
+            // Keep original name for display, create a normalized key for matching
+            const originalName = ingredientName.trim();
             
-            console.log(`🔍 Line: "${cleanLine}" -> qty: ${quantity}, name: "${ingredientName}", normalized: "${normalizedName}"`);
+            // For matching, just normalize case and basic cleanup - don't remove too much
+            let normalizedKey = ingredientName.toLowerCase().trim();
+            
+            // Only remove measurements if they're at the beginning, preserve the main ingredient name
+            normalizedKey = normalizedKey
+                .replace(/^(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?)\s+/i, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            console.log(`🔍 Line: "${cleanLine}" -> qty: ${quantity}, original: "${originalName}", key: "${normalizedKey}"`);
 
-            if (normalizedName.length > 0) {
-                if (requiredItems.has(normalizedName)) {
-                    requiredItems.get(normalizedName)!.quantity += quantity;
+            if (normalizedKey.length > 2) {
+                if (requiredItems.has(normalizedKey)) {
+                    requiredItems.get(normalizedKey)!.quantity += quantity;
                 } else {
-                    requiredItems.set(normalizedName, { quantity, originalName: ingredientName });
+                    requiredItems.set(normalizedKey, { quantity, originalName });
                 }
             }
         }
@@ -373,47 +382,97 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
 
     console.log("📊 Required items:", Array.from(requiredItems.entries()));
 
-    // Create pantry map
+    // Create pantry map with similar normalization
     const pantryMap = new Map<string, number>();
     pantryItems.forEach(item => {
-        const normalizedName = item.ingredient_name.toLowerCase().trim();
+        let normalizedKey = item.ingredient_name.toLowerCase().trim();
+        // Apply same normalization as above
+        normalizedKey = normalizedKey
+            .replace(/^(cups?|tbsp|tablespoons?|tsp|teaspoons?|lbs?|pounds?|oz|ounces?|cloves?|slices?|cans?|bottles?|jars?)\s+/i, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+            
         const qty = parseFloat(item.quantity) || 0;
-        pantryMap.set(normalizedName, qty);
-        console.log(`🥫 Pantry: "${item.ingredient_name}" -> normalized: "${normalizedName}", qty: ${qty}`);
+        pantryMap.set(normalizedKey, qty);
+        console.log(`🥫 Pantry: "${item.ingredient_name}" -> key: "${normalizedKey}", qty: ${qty}`);
     });
 
     console.log("🗃️ Pantry map:", Array.from(pantryMap.entries()));
 
-    // Calculate what to buy
-    const toBuyItems: string[] = [];
+    // Categorize ingredients
+    const categorizeIngredient = (name: string): string => {
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes('chicken') || lowerName.includes('beef') || lowerName.includes('pork') || lowerName.includes('fish') || lowerName.includes('salmon') || lowerName.includes('turkey') || lowerName.includes('shrimp') || lowerName.includes('tuna')) {
+            return 'Meat & Seafood';
+        }
+        if (lowerName.includes('milk') || lowerName.includes('cheese') || lowerName.includes('yogurt') || lowerName.includes('butter') || lowerName.includes('cream') || lowerName.includes('egg')) {
+            return 'Dairy & Eggs';
+        }
+        if (lowerName.includes('tomato') || lowerName.includes('onion') || lowerName.includes('carrot') || lowerName.includes('potato') || lowerName.includes('pepper') || lowerName.includes('lettuce') || lowerName.includes('spinach') || lowerName.includes('apple') || lowerName.includes('banana') || lowerName.includes('garlic') || lowerName.includes('avocado') || lowerName.includes('cucumber') || lowerName.includes('greens') || lowerName.includes('fruits') || lowerName.includes('lime') || lowerName.includes('lemon')) {
+            return 'Produce';
+        }
+        if (lowerName.includes('bread') || lowerName.includes('pasta') || lowerName.includes('rice') || lowerName.includes('flour') || lowerName.includes('cereal') || lowerName.includes('tortilla')) {
+            return 'Grains & Bakery';
+        }
+        if (lowerName.includes('oil') || lowerName.includes('salt') || lowerName.includes('pepper') || lowerName.includes('spice') || lowerName.includes('sauce') || lowerName.includes('vinegar') || lowerName.includes('seasoning') || lowerName.includes('mustard') || lowerName.includes('mayonnaise')) {
+            return 'Pantry Staples';
+        }
+        return 'Other';
+    };
+
+    // Calculate what to buy and categorize
+    const categorizedItems = new Map<string, string[]>();
+    let totalEstimatedCost = 0;
     
-    requiredItems.forEach((item, normalizedName) => {
+    requiredItems.forEach((item, normalizedKey) => {
         const needed = item.quantity;
-        const inPantry = pantryMap.get(normalizedName) || 0;
+        const inPantry = pantryMap.get(normalizedKey) || 0;
         const toBuy = needed - inPantry;
 
-        console.log(`🧮 "${normalizedName}": needed=${needed}, inPantry=${inPantry}, toBuy=${toBuy}`);
+        console.log(`🧮 "${normalizedKey}": needed=${needed}, inPantry=${inPantry}, toBuy=${toBuy}`);
 
         if (toBuy > 0) {
             const displayQuantity = toBuy % 1 === 0 ? Math.floor(toBuy) : toBuy.toFixed(1);
-            toBuyItems.push(`${displayQuantity} ${item.originalName}`);
+            const displayItem = `${displayQuantity} ${item.originalName}`;
+            
+            const category = categorizeIngredient(item.originalName);
+            if (!categorizedItems.has(category)) {
+                categorizedItems.set(category, []);
+            }
+            categorizedItems.get(category)!.push(displayItem);
+            
+            // Simple cost estimation
+            totalEstimatedCost += toBuy * 3.5;
         }
     });
 
-    console.log("🛍️ Items to buy:", toBuyItems);
+    console.log("🛍️ Categorized items:", Array.from(categorizedItems.entries()));
 
-    if (toBuyItems.length === 0) {
+    if (categorizedItems.size === 0) {
         console.log("✅ All ingredients are in pantry");
         setShoppingListBudget(null);
         return [{ category: "Shopping List", items: ["All ingredients are in your pantry!"] }];
     }
 
-    // Simple categorization
-    const estimatedCost = toBuyItems.length * 3.5;
-    setShoppingListBudget(`$${Math.round(estimatedCost)}`);
+    // Set budget and create final list
+    setShoppingListBudget(`$${Math.round(totalEstimatedCost)}`);
     
-    console.log("✅ Final shopping list with", toBuyItems.length, "items");
-    return [{ category: "Shopping List", items: toBuyItems }];
+    // Convert to array format and sort
+    const categorizedList = Array.from(categorizedItems.entries()).map(([category, items]) => ({
+        category,
+        items: items.sort()
+    }));
+
+    // Sort categories by typical shopping order
+    const categoryOrder = ['Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Grains & Bakery', 'Pantry Staples', 'Other'];
+    categorizedList.sort((a, b) => {
+        const aIndex = categoryOrder.indexOf(a.category);
+        const bIndex = categoryOrder.indexOf(b.category);
+        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    });
+    
+    console.log("✅ Final shopping list with categories:", categorizedList);
+    return categorizedList;
   }, [weeklyPlan, pantryItems]);
   
   return (
