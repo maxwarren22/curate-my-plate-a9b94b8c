@@ -459,32 +459,66 @@ Return ONLY a JSON array with 7 objects:
 }
 
 async function generateSimpleSideDish(mainRecipe: SpoonacularRecipe): Promise<any> {
-  // Generate simple side dishes based on main dish type
-  const sideDishes = {
-    'chicken': { title: 'Steamed Broccoli', ingredients: '1 head broccoli\n2 tbsp olive oil\nSalt and pepper to taste', recipe: '1. Steam broccoli for 5-7 minutes\n2. Drizzle with olive oil\n3. Season with salt and pepper', calories: 55 },
-    'beef': { title: 'Garlic Mashed Potatoes', ingredients: '2 lbs potatoes\n4 cloves garlic\n1/4 cup butter\n1/2 cup milk\nSalt to taste', recipe: '1. Boil potatoes until tender\n2. Mash with garlic, butter, and milk\n3. Season with salt', calories: 180 },
-    'pasta': { title: 'Caesar Salad', ingredients: '1 head romaine lettuce\n1/4 cup parmesan cheese\n2 tbsp caesar dressing\nCroutons', recipe: '1. Chop romaine lettuce\n2. Add parmesan and croutons\n3. Toss with dressing', calories: 85 },
-    'fish': { title: 'Lemon Rice', ingredients: '1 cup rice\n2 cups water\n1 lemon (juiced)\n2 tbsp butter\nSalt to taste', recipe: '1. Cook rice according to package directions\n2. Stir in lemon juice and butter\n3. Season with salt', calories: 160 },
-    'default': { title: 'Mixed Green Salad', ingredients: '4 cups mixed greens\n1 tomato\n1/2 cucumber\n2 tbsp vinaigrette', recipe: '1. Combine mixed greens, diced tomato, and cucumber\n2. Drizzle with vinaigrette\n3. Toss to combine', calories: 45 }
-  };
+  console.log('🥗 Generating side dish for main recipe:', mainRecipe.title);
+  
+  // Expanded side dish options with more variety
+  const sideDishOptions = [
+    // Vegetable sides
+    { title: 'Steamed Broccoli', ingredients: '1 head broccoli\n2 tbsp olive oil\nSalt and pepper to taste', recipe: '1. Steam broccoli for 5-7 minutes\n2. Drizzle with olive oil\n3. Season with salt and pepper', calories: 55, category: 'vegetable' },
+    { title: 'Roasted Asparagus', ingredients: '1 lb asparagus\n2 tbsp olive oil\n1 clove garlic\nSalt and pepper', recipe: '1. Preheat oven to 400°F\n2. Toss asparagus with oil and garlic\n3. Roast for 12-15 minutes', calories: 65, category: 'vegetable' },
+    { title: 'Honey Glazed Carrots', ingredients: '1 lb carrots\n2 tbsp honey\n1 tbsp butter\nSalt to taste', recipe: '1. Steam carrots until tender\n2. Glaze with honey and butter\n3. Season with salt', calories: 80, category: 'vegetable' },
+    { title: 'Green Bean Almondine', ingredients: '1 lb green beans\n1/4 cup sliced almonds\n2 tbsp butter\nLemon juice', recipe: '1. Steam green beans until crisp-tender\n2. Sauté almonds in butter\n3. Toss beans with almonds and lemon', calories: 95, category: 'vegetable' },
+    
+    // Salads
+    { title: 'Mixed Green Salad', ingredients: '4 cups mixed greens\n1 tomato\n1/2 cucumber\n2 tbsp vinaigrette', recipe: '1. Combine mixed greens, diced tomato, and cucumber\n2. Drizzle with vinaigrette\n3. Toss to combine', calories: 45, category: 'salad' },
+    { title: 'Caesar Salad', ingredients: '1 head romaine lettuce\n1/4 cup parmesan cheese\n2 tbsp caesar dressing\nCroutons', recipe: '1. Chop romaine lettuce\n2. Add parmesan and croutons\n3. Toss with dressing', calories: 85, category: 'salad' },
+    { title: 'Garden Salad', ingredients: '4 cups lettuce\n1 bell pepper\n1/2 red onion\n2 tbsp olive oil vinaigrette', recipe: '1. Mix lettuce, diced pepper, and onion\n2. Drizzle with vinaigrette\n3. Toss well', calories: 50, category: 'salad' },
+    
+    // Starches
+    { title: 'Garlic Mashed Potatoes', ingredients: '2 lbs potatoes\n4 cloves garlic\n1/4 cup butter\n1/2 cup milk\nSalt to taste', recipe: '1. Boil potatoes until tender\n2. Mash with garlic, butter, and milk\n3. Season with salt', calories: 180, category: 'starch' },
+    { title: 'Herb Rice Pilaf', ingredients: '1 cup rice\n2 cups chicken broth\n1 tbsp herbs\n1 tbsp butter', recipe: '1. Sauté rice in butter\n2. Add broth and herbs\n3. Simmer until tender', calories: 160, category: 'starch' },
+    { title: 'Roasted Sweet Potatoes', ingredients: '2 large sweet potatoes\n2 tbsp olive oil\n1 tsp cinnamon\nSalt to taste', recipe: '1. Cut sweet potatoes into cubes\n2. Toss with oil and seasonings\n3. Roast at 425°F for 25 minutes', calories: 140, category: 'starch' },
+    { title: 'Lemon Rice', ingredients: '1 cup rice\n2 cups water\n1 lemon (juiced)\n2 tbsp butter\nSalt to taste', recipe: '1. Cook rice according to package directions\n2. Stir in lemon juice and butter\n3. Season with salt', calories: 160, category: 'starch' },
+    
+    // Bread sides
+    { title: 'Garlic Bread', ingredients: '1 baguette\n4 cloves garlic\n1/4 cup butter\nParsley', recipe: '1. Mix garlic with butter\n2. Spread on sliced bread\n3. Bake until golden', calories: 120, category: 'bread' }
+  ];
 
-  // Determine side dish based on main recipe title
+  // Smart selection based on main dish type and variety
   const title = mainRecipe.title.toLowerCase();
-  let sideDishKey = 'default';
+  let preferredCategories = [];
   
-  if (title.includes('chicken')) sideDishKey = 'chicken';
-  else if (title.includes('beef') || title.includes('steak')) sideDishKey = 'beef';
-  else if (title.includes('pasta') || title.includes('spaghetti')) sideDishKey = 'pasta';
-  else if (title.includes('fish') || title.includes('salmon') || title.includes('tuna')) sideDishKey = 'fish';
+  if (title.includes('chicken') || title.includes('meat') || title.includes('beef')) {
+    preferredCategories = ['vegetable', 'starch'];
+  } else if (title.includes('pasta') || title.includes('pizza') || title.includes('bread')) {
+    preferredCategories = ['salad', 'vegetable'];
+  } else if (title.includes('fish') || title.includes('salmon') || title.includes('seafood')) {
+    preferredCategories = ['vegetable', 'starch'];
+  } else if (title.includes('salad')) {
+    preferredCategories = ['bread', 'starch'];
+  } else {
+    preferredCategories = ['vegetable', 'salad', 'starch'];
+  }
   
-  const sideDish = sideDishes[sideDishKey];
+  // Filter options by preferred categories
+  const suitableOptions = sideDishOptions.filter(option => 
+    preferredCategories.includes(option.category)
+  );
+  
+  // If no suitable options, use all vegetable sides as fallback
+  const finalOptions = suitableOptions.length > 0 ? suitableOptions : sideDishOptions.filter(o => o.category === 'vegetable');
+  
+  // Randomly select from suitable options
+  const selectedSide = finalOptions[Math.floor(Math.random() * finalOptions.length)];
+  
+  console.log('✅ Selected side dish:', selectedSide.title, 'for main:', mainRecipe.title);
   
   return {
     id: crypto.randomUUID(),
-    title: sideDish.title,
-    ingredients: sideDish.ingredients,
-    recipe: sideDish.recipe,
-    calories: sideDish.calories,
+    title: selectedSide.title,
+    ingredients: selectedSide.ingredients,
+    recipe: selectedSide.recipe,
+    calories: selectedSide.calories,
     servings: 4,
     source_type: 'ai'
   };
@@ -739,15 +773,31 @@ async function fillMealPlanGaps(
 }
 
 async function convertSpoonacularToRecipe(spoonacularRecipe: SpoonacularRecipe, isMainDish: boolean): Promise<any> {
+  console.log('🔄 Converting Spoonacular recipe:', spoonacularRecipe.title);
+  console.log('🔧 Debug: extendedIngredients exists:', !!spoonacularRecipe.extendedIngredients);
+  console.log('🔧 Debug: extendedIngredients length:', spoonacularRecipe.extendedIngredients?.length || 0);
+  
   // Convert Spoonacular ingredients to string format
-  const ingredients = spoonacularRecipe.extendedIngredients
-    ?.map(ing => `${ing.amount} ${ing.unit} ${ing.name}`)
-    .join('\n') || '';
+  let ingredients = '';
+  
+  if (spoonacularRecipe.extendedIngredients && spoonacularRecipe.extendedIngredients.length > 0) {
+    ingredients = spoonacularRecipe.extendedIngredients
+      .map(ing => `${ing.amount || ''} ${ing.unit || ''} ${ing.name || ing.originalString || ''}`.trim())
+      .filter(ing => ing.length > 0)
+      .join('\n');
+  } else {
+    console.log('⚠️ No extendedIngredients found, creating fallback ingredients for:', spoonacularRecipe.title);
+    // Generate basic ingredients based on recipe title as fallback
+    ingredients = generateFallbackIngredients(spoonacularRecipe.title, isMainDish);
+  }
 
   // Convert instructions to string format
   const instructions = spoonacularRecipe.analyzedInstructions?.[0]?.steps
     ?.map((step: any, index: number) => `${index + 1}. ${step.step}`)
-    .join('\n') || '';
+    .join('\n') || `1. Prepare the ${spoonacularRecipe.title.toLowerCase()} according to recipe.\n2. Cook until done and serve hot.`;
+
+  console.log('✅ Converted ingredients length:', ingredients.length);
+  console.log('✅ First 100 chars of ingredients:', ingredients.substring(0, 100));
 
   const recipe = {
     id: crypto.randomUUID(),
@@ -768,6 +818,29 @@ async function convertSpoonacularToRecipe(spoonacularRecipe: SpoonacularRecipe, 
   };
 
   return recipe;
+}
+
+function generateFallbackIngredients(title: string, isMainDish: boolean): string {
+  const titleLower = title.toLowerCase();
+  let ingredients = [];
+  
+  // Basic ingredients based on dish type
+  if (titleLower.includes('chicken')) {
+    ingredients = ['2 lbs chicken breast', '2 tbsp olive oil', '1 onion', '2 cloves garlic', 'Salt and pepper to taste'];
+  } else if (titleLower.includes('pasta') || titleLower.includes('lasagna')) {
+    ingredients = ['1 lb pasta', '2 cups tomato sauce', '1 onion', '2 cloves garlic', '1 cup cheese'];
+  } else if (titleLower.includes('beef')) {
+    ingredients = ['1 lb beef', '2 tbsp oil', '1 onion', '2 carrots', 'Salt and pepper to taste'];
+  } else if (titleLower.includes('fish')) {
+    ingredients = ['1 lb fish fillets', '2 tbsp butter', '1 lemon', '2 cloves garlic', 'Fresh herbs'];
+  } else if (titleLower.includes('salad')) {
+    ingredients = ['4 cups mixed greens', '1 cucumber', '2 tomatoes', '1/4 cup dressing'];
+  } else {
+    // Generic ingredients
+    ingredients = ['Main protein (1 lb)', '2 tbsp cooking oil', '1 onion', '2 cloves garlic', 'Seasonings to taste'];
+  }
+  
+  return ingredients.join('\n');
 }
 
 async function generateAIRecipe(dishConcept: string, concept: MealConcept, pantryItems: string[], dislikedIngredients: string[]): Promise<any> {
