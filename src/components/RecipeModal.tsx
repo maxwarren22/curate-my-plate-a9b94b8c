@@ -21,7 +21,8 @@ type FeedbackStatus = {
 };
 
 const formatListFromString = (listString: string | undefined): string[] => {
-  if (!listString) return [];
+  console.log('formatListFromString called with:', listString, 'type:', typeof listString);
+  if (!listString || typeof listString !== 'string') return [];
   return listString.split(/\s*(?:\n|-)\s*/).filter(item => item.trim() !== '').map(item => item.trim());
 };
 
