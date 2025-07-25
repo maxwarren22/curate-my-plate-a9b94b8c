@@ -21,6 +21,8 @@ interface ShoppingListResponse {
 }
 
 serve(async (req) => {
+  console.log('process-shopping-list function called with method:', req.method);
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
