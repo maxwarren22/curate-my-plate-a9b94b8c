@@ -480,7 +480,7 @@ async function generateSimpleSideDish(mainRecipe: SpoonacularRecipe): Promise<an
   const sideDish = sideDishes[sideDishKey];
   
   return {
-    id: `side-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: crypto.randomUUID(),
     title: sideDish.title,
     ingredients: sideDish.ingredients,
     recipe: sideDish.recipe,
@@ -821,14 +821,19 @@ Return ONLY a JSON object with:
 }
 
 async function saveMealPlanToDatabase(userId: string, mealPlan: any[]): Promise<void> {
+  console.log('Saving meal plan to database...');
+  
   // Save recipes first
   const recipesToSave = [];
   for (const day of mealPlan) {
+    console.log(`Processing ${day.day}: main=${day.main_dish?.title}, side=${day.side_dish?.title}`);
     recipesToSave.push(day.main_dish);
     if (day.side_dish) {
       recipesToSave.push(day.side_dish);
     }
   }
+  
+  console.log('Total recipes to save:', recipesToSave.length);
 
   // Insert recipes
   const { error: recipeError } = await supabase
