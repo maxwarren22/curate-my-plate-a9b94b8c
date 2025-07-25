@@ -29,4 +29,8 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- Step 4: Create an index for faster similarity searches
+-- Temporarily increase maintenance_work_mem for index creation
+SET maintenance_work_mem = '128MB';
 CREATE INDEX ON public.recipes USING ivfflat (embedding vector_l2_ops) WITH (lists = 100);
+-- Reset maintenance_work_mem to its default value
+RESET maintenance_work_mem;

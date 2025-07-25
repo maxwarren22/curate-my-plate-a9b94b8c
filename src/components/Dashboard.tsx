@@ -161,20 +161,29 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
   }, [user, loadInitialData]);
 
   const generateMealPlan = async () => {
-    if (!session?.access_token) {
+    if (!session?.access_token || !user) {
       toast({ title: "Authentication Error", description: "You must be signed in to generate a plan.", variant: "destructive" });
       return;
     }
     setGeneratingPlan(true);
     try {
-        const { data, error } = await supabase.functions.invoke('generate-meal-plan');
+        const pantryItemNames = pantryItems.map(item => item.ingredient_name);
+        const requestBody = {
+            userId: user.id,
+            pantryItems: pantryItemNames,
+            dietaryPreferences: userProfile.dietaryRestrictions.join(', '),
+            cookTime: userProfile.cookingTime,
+        };
+
+        const { data, error } = await supabase.functions.invoke('generate-meal-plan', {
+            body: requestBody,
+        });
         
         if (error) throw new Error(error.message);
 
-        if (data.success && data.mealPlan) {
-            setWeeklyPlan(data.mealPlan.meal_plan);
-            setShoppingList(data.mealPlan.shopping_list);
-            setShoppingListBudget(data.mealPlan.budget);
+        if (data.mealPlan) {
+            setWeeklyPlan(data.mealPlan);
+            // The shopping list is now calculated on the client-side via useMemo
             toast({ title: "Success!", description: "Your new meal plan is ready." });
             await checkSubscription();
         } else {
@@ -301,31 +310,56 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
   };
 
   const adjustedShoppingList = useMemo(() => {
-    if (!shoppingList || shoppingList.length === 0) {
-      return [];
+    const allIngredients = weeklyPlan.flatMap(day => [
+        ...(day.main_dish?.ingredients || []),
+        ...(day.side_dish?.ingredients || []),
+    ]);
+
+    if (allIngredients.length === 0) {
+        return [];
     }
 
-    const pantryIngredientNames = pantryItems.map(item => item.ingredient_name.toLowerCase().trim());
+    const requiredItems = new Map<string, { quantity: number; unit: string }>();
 
-    const adjustedList = shoppingList.map(category => {
-      if (!category.items || !Array.isArray(category.items)) {
-        return { ...category, items: [] };
-      }
-      
-      const newItems = category.items.filter(item => {
-        const cleanItemName = item.toLowerCase().trim();
-        
-        // Check if any pantry item is a substring of the shopping list item
-        const foundInPantry = pantryIngredientNames.some(pantryItem => cleanItemName.includes(pantryItem));
-        
-        return !foundInPantry;
-      });
-      
-      return { ...category, items: newItems };
+    for (const ingredientString of allIngredients) {
+        try {
+            const [parsed] = parseIngredient(ingredientString);
+            const name = parsed.ingredient.toLowerCase();
+            const quantity = parsed.quantity || 1; // Default to 1 if quantity is not parsed
+
+            if (requiredItems.has(name)) {
+                // Note: This doesn't handle unit conversion (e.g., tbsp to cup)
+                requiredItems.get(name)!.quantity += quantity;
+            } else {
+                requiredItems.set(name, { quantity, unit: parsed.unitOfMeasure || 'count' });
+            }
+        } catch (e) {
+            console.warn("Could not parse ingredient:", ingredientString);
+            // Handle un-parsable ingredients gracefully, maybe add them to a separate list
+        }
+    }
+
+    const pantryMap = new Map<string, number>();
+    pantryItems.forEach(item => {
+        pantryMap.set(item.ingredient_name.toLowerCase(), parseFloat(item.quantity) || 0);
     });
 
-    return adjustedList.filter(category => category.items.length > 0);
-  }, [shoppingList, pantryItems]);
+    const shoppingListItems: string[] = [];
+    requiredItems.forEach((item, name) => {
+        const needed = item.quantity;
+        const inPantry = pantryMap.get(name) || 0;
+        const toBuy = needed - inPantry;
+
+        if (toBuy > 0) {
+            shoppingListItems.push(`${toBuy} ${item.unit} ${name}`);
+        }
+    });
+    
+    // Simple categorization for display
+    const categorizedList = [{ category: "Shopping List", items: shoppingListItems }];
+
+    return categorizedList;
+  }, [weeklyPlan, pantryItems]);
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted/30">
@@ -386,11 +420,11 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                               <span className="text-7xl opacity-70">🍽️</span>
                             </div>
                             <div className="md:col-span-2 p-6">
-                              <CardTitle className="group-hover:text-primary transition-colors">{mealDay.main_dish.title}</CardTitle>
-                              {mealDay.side_dish && <CardDescription>with {mealDay.side_dish.title}</CardDescription>}
+                              <CardTitle className="group-hover:text-primary transition-colors">{mealDay.main_dish?.title}</CardTitle>
+                              {mealDay.side_dish && <CardDescription>with {mealDay.side_dish?.title}</CardDescription>}
                               <div className="flex gap-2 mt-4">
                                   <Badge variant="secondary">{mealDay.total_time_to_cook}</Badge>
-                                  <Badge variant="outline">🔥 {(mealDay.main_dish.calories || 0) + (mealDay.side_dish?.calories || 0)} cal</Badge>
+                                  <Badge variant="outline">🔥 {(mealDay.main_dish?.calories || 0) + (mealDay.side_dish?.calories || 0)} cal</Badge>
                               </div>
                             </div>
                           </div>
