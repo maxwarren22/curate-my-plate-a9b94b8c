@@ -254,10 +254,14 @@ async function searchSpoonacularRecipe(
   try {
     if (!spoonacularApiKey) {
       console.log('❌ No Spoonacular API key available, skipping recipe search');
+      console.log('🔧 Debug: spoonacularApiKey value:', spoonacularApiKey);
+      console.log('🔧 Debug: typeof spoonacularApiKey:', typeof spoonacularApiKey);
       return null;
     }
 
     console.log('🔍 Searching Spoonacular for:', dishConcept);
+    console.log('🔧 Debug: API key length:', spoonacularApiKey.length);
+    console.log('🔧 Debug: API key first 10 chars:', spoonacularApiKey.substring(0, 10) + '...');
     
     const excludeIngredients = dislikedIngredients.join(',');
     const diet = dietaryRestrictions.length > 0 ? dietaryRestrictions[0] : '';
@@ -274,15 +278,27 @@ async function searchSpoonacularRecipe(
       `addRecipeNutrition=true`;
 
     console.log('🌐 Calling Spoonacular API...');
+    console.log('🔧 Debug: Search URL:', searchUrl);
     const response = await fetch(searchUrl);
     
+    console.log('🔧 Debug: Response status:', response.status);
+    console.log('🔧 Debug: Response headers:', Object.fromEntries(response.headers.entries()));
+    
     if (!response.ok) {
+      const errorText = await response.text();
       console.error('❌ Spoonacular API error:', response.status, response.statusText);
+      console.error('❌ Error response body:', errorText);
       return null;
     }
     
     const data = await response.json();
+    console.log('✅ Spoonacular response structure:', Object.keys(data));
     console.log('✅ Spoonacular response:', data.results?.length || 0, 'results for', dishConcept);
+    
+    if (data.error) {
+      console.error('❌ Spoonacular API returned error:', data.error);
+      return null;
+    }
 
     if (data.results && data.results.length > 0) {
       return data.results[0];
