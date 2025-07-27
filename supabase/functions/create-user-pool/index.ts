@@ -136,27 +136,32 @@ serve(async (req) => {
 
     console.log(`[CREATE-USER-POOL] User preferences loaded - ${likedRecipeIds.size} liked, ${dislikedRecipeIds.size} disliked recipes, ${dislikedIngredientNames.size} disliked ingredients`);
 
-    // Score recipes based on user preferences
+    // Score and filter recipes based on user preferences
     const scoredRecipes: ScoredRecipe[] = recipes
-      .filter(recipe => {
-        // Filter out disliked recipes
-        if (dislikedRecipeIds.has(recipe.id)) return false;
+      .map(recipe => {
+        // Check recipe status
+        const isLiked = likedRecipeIds.has(recipe.id);
+        const isDisliked = dislikedRecipeIds.has(recipe.id);
         
-        // Filter out recipes with disliked ingredients
+        // Check for disliked ingredients
         const hasDislikedIngredient = Array.from(dislikedIngredientNames).some(ingredient =>
           recipe.ingredients.toLowerCase().includes(ingredient)
         );
-        if (hasDislikedIngredient) return false;
         
-        return true;
-      })
-      .map(recipe => {
-        const score = calculateRecipeScore(recipe, profile as UserProfile, likedRecipeIds.has(recipe.id));
+        // Calculate score (includes penalty for disliked recipes/ingredients)
+        const scoreData = calculateRecipeScore(
+          recipe, 
+          profile as UserProfile, 
+          isLiked, 
+          isDisliked || hasDislikedIngredient
+        );
+        
         return {
           ...recipe,
-          ...score
+          ...scoreData
         };
       })
+      .filter(recipe => recipe.score > 0) // Remove recipes with negative scores
       .sort((a, b) => b.score - a.score)
       .slice(0, 200); // Keep top 200 recipes
 
@@ -213,88 +218,150 @@ serve(async (req) => {
   }
 });
 
-function calculateRecipeScore(recipe: Recipe, profile: UserProfile, isLiked: boolean) {
-  let budgetScore = 0;
-  let healthScore = 0;
-  let timeScore = 0;
-  let complexityScore = 0;
-  let preferenceScore = isLiked ? 20 : 0; // Bonus for liked recipes
-
-  // Budget scoring (0-25 points)
-  const pricePerServing = recipe.price_per_serving || 5; // Default $5 if not available
-  switch (profile.budget) {
-    case 'low':
-      budgetScore = Math.max(0, 25 - (pricePerServing * 5));
-      break;
-    case 'medium':
-      budgetScore = pricePerServing <= 8 ? 25 : Math.max(0, 25 - ((pricePerServing - 8) * 3));
-      break;
-    case 'high':
-      budgetScore = 25; // No budget constraints
-      break;
-    default:
-      budgetScore = 15;
+function calculateRecipeScore(recipe: Recipe, profile: UserProfile, isLiked: boolean, isDisliked: boolean) {
+  // Immediately penalize disliked recipes
+  if (isDisliked) {
+    return {
+      score: -100,
+      scoreBreakdown: {
+        budget: 0,
+        health: 0,
+        time: 0,
+        complexity: 0,
+        preference: -100
+      }
+    };
   }
 
-  // Health scoring (0-25 points)
-  const healthScoreValue = recipe.health_score || 50;
-  if (profile.health_goals === 'weight_loss') {
-    healthScore = Math.min(25, (healthScoreValue / 100) * 25 + (recipe.calories < 500 ? 5 : 0));
-  } else if (profile.health_goals === 'muscle_gain') {
-    healthScore = Math.min(25, (healthScoreValue / 100) * 20 + (recipe.calories > 600 ? 5 : 0));
+  let score = 0;
+  const scoreBreakdown = {
+    budget: 0,
+    health: 0,
+    time: 0,
+    complexity: 0,
+    preference: 0
+  };
+
+  // Budget scoring (30% weight)
+  if (recipe.price_per_serving && profile.budget) {
+    const budgetMap: { [key: string]: number } = {
+      'low': 3,
+      'medium': 6,
+      'high': 12
+    };
+    const maxBudget = budgetMap[profile.budget] || 6;
+    if (recipe.price_per_serving <= maxBudget) {
+      const budgetEfficiency = 1 - (recipe.price_per_serving / maxBudget);
+      scoreBreakdown.budget = budgetEfficiency * 30;
+    } else {
+      scoreBreakdown.budget = 0; // Over budget
+    }
   } else {
-    healthScore = (healthScoreValue / 100) * 25;
+    scoreBreakdown.budget = 15; // Default if no price data
   }
 
-  // Time scoring (0-25 points)
-  const cookTime = recipe.ready_in_minutes || 30;
-  switch (profile.cooking_time) {
-    case 'quick':
-      timeScore = cookTime <= 20 ? 25 : Math.max(0, 25 - ((cookTime - 20) * 1.5));
-      break;
-    case 'medium':
-      timeScore = cookTime <= 45 ? 25 : Math.max(0, 25 - ((cookTime - 45) * 1));
-      break;
-    case 'long':
-      timeScore = 25; // No time constraints
-      break;
-    default:
-      timeScore = cookTime <= 30 ? 25 : Math.max(0, 25 - ((cookTime - 30) * 1));
+  // Health goals scoring (25% weight)
+  if (profile.health_goals && recipe.health_score) {
+    let healthMultiplier = 1;
+    
+    // Adjust multiplier based on health goals
+    switch (profile.health_goals) {
+      case 'weight_loss':
+        healthMultiplier = 1.5;
+        // Bonus for lower calorie recipes
+        if (recipe.calories && recipe.calories < 500) {
+          healthMultiplier += 0.2;
+        }
+        break;
+      case 'muscle_gain':
+        healthMultiplier = 1.3;
+        // Bonus for higher protein/calorie recipes
+        if (recipe.calories && recipe.calories > 600) {
+          healthMultiplier += 0.2;
+        }
+        break;
+      case 'general_health':
+        healthMultiplier = 1.2;
+        break;
+      default:
+        healthMultiplier = 1;
+    }
+    
+    scoreBreakdown.health = (recipe.health_score / 100) * 25 * healthMultiplier;
+  } else {
+    scoreBreakdown.health = 12.5; // Default health score
   }
 
-  // Complexity scoring (0-25 points) - based on ingredient count and instructions
-  const ingredientCount = recipe.ingredients.split('\n').length;
-  const instructionCount = recipe.recipe.split('\n').length;
-  let complexityLevel = 0;
-  
-  if (ingredientCount <= 5 && instructionCount <= 5) complexityLevel = 1; // Simple
-  else if (ingredientCount <= 10 && instructionCount <= 8) complexityLevel = 2; // Medium
-  else complexityLevel = 3; // Complex
-
-  switch (profile.skill_level) {
-    case 'beginner':
-      complexityScore = complexityLevel === 1 ? 25 : complexityLevel === 2 ? 15 : 5;
-      break;
-    case 'intermediate':
-      complexityScore = complexityLevel === 2 ? 25 : complexityLevel === 1 ? 20 : 15;
-      break;
-    case 'advanced':
-      complexityScore = 25; // Can handle any complexity
-      break;
-    default:
-      complexityScore = complexityLevel === 2 ? 25 : 15;
+  // Time scoring (20% weight)
+  if (recipe.ready_in_minutes && profile.cooking_time) {
+    const timeMap: { [key: string]: number } = {
+      'quick': 30,
+      'moderate': 60,
+      'long': 120
+    };
+    const maxTime = timeMap[profile.cooking_time] || 60;
+    
+    if (recipe.ready_in_minutes <= maxTime) {
+      const timeEfficiency = 1 - (recipe.ready_in_minutes / maxTime);
+      scoreBreakdown.time = 10 + (timeEfficiency * 10); // Base 10 + efficiency bonus
+    } else {
+      scoreBreakdown.time = 0; // Recipe takes too long
+    }
+  } else {
+    scoreBreakdown.time = 10; // Default time score
   }
 
-  const totalScore = budgetScore + healthScore + timeScore + complexityScore + preferenceScore;
+  // Complexity/skill level scoring (15% weight)
+  if (profile.skill_level && recipe.ready_in_minutes) {
+    const ingredientCount = recipe.ingredients.split('\n').filter(i => i.trim()).length;
+    const instructionSteps = recipe.recipe.split('\n').filter(i => i.trim()).length;
+    
+    // Determine complexity level
+    let complexityLevel = 1; // Simple
+    if (ingredientCount > 8 || instructionSteps > 6 || recipe.ready_in_minutes > 60) {
+      complexityLevel = 2; // Medium
+    }
+    if (ingredientCount > 15 || instructionSteps > 10 || recipe.ready_in_minutes > 120) {
+      complexityLevel = 3; // Complex
+    }
+    
+    const skillMap: { [key: string]: { [key: number]: number } } = {
+      'beginner': { 1: 15, 2: 10, 3: 5 },
+      'intermediate': { 1: 12, 2: 15, 3: 12 },
+      'advanced': { 1: 10, 2: 13, 3: 15 }
+    };
+    
+    scoreBreakdown.complexity = skillMap[profile.skill_level]?.[complexityLevel] || 10;
+  } else {
+    scoreBreakdown.complexity = 10; // Default complexity score
+  }
+
+  // User preference scoring (10% weight + significant bonus)
+  if (isLiked) {
+    scoreBreakdown.preference = 50; // Major bonus for liked recipes
+  } else {
+    scoreBreakdown.preference = 10; // Base preference score
+  }
+
+  // Additional dietary restrictions bonus
+  if (profile.dietary_restrictions && profile.dietary_restrictions.length > 0) {
+    // This would require recipe tags/metadata from Spoonacular
+    // For now, we'll add a small bonus if health score is high
+    if (recipe.health_score && recipe.health_score > 70) {
+      scoreBreakdown.health += 5;
+    }
+  }
+
+  score = Object.values(scoreBreakdown).reduce((sum, val) => sum + val, 0);
 
   return {
-    score: Math.round(totalScore),
+    score: Math.round(score * 100) / 100,
     scoreBreakdown: {
-      budget: Math.round(budgetScore),
-      health: Math.round(healthScore),
-      time: Math.round(timeScore),
-      complexity: Math.round(complexityScore),
-      preference: Math.round(preferenceScore)
+      budget: Math.round(scoreBreakdown.budget * 100) / 100,
+      health: Math.round(scoreBreakdown.health * 100) / 100,
+      time: Math.round(scoreBreakdown.time * 100) / 100,
+      complexity: Math.round(scoreBreakdown.complexity * 100) / 100,
+      preference: Math.round(scoreBreakdown.preference * 100) / 100
     }
   };
 }

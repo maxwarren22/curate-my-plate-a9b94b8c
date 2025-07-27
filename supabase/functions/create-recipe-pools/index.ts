@@ -103,7 +103,7 @@ serve(async (req) => {
     // Build Spoonacular query parameters
     const queryParams = new URLSearchParams({
       apiKey: spoonacularApiKey,
-      number: '500', // Request maximum recipes
+      number: '500', // Request maximum recipes for variety
       addRecipeInformation: 'true',
       addRecipeNutrition: 'true',
       instructionsRequired: 'true',

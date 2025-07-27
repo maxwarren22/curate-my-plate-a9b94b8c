@@ -93,37 +93,49 @@ serve(async (req) => {
     const scoredRecipes: ScoredRecipe[] = JSON.parse(userPool.scored_recipes);
     console.log(`[GENERATE-WEEKLY-PLAN] Loaded ${scoredRecipes.length} scored recipes`);
 
+    // Sort recipes by score and prepare top performers for AI selection
+    const topRecipes = scoredRecipes
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 30); // Use top 30 highest-scoring recipes
+
+    console.log(`[GENERATE-WEEKLY-PLAN] Using top ${topRecipes.length} recipes for AI selection`);
+    console.log(`[GENERATE-WEEKLY-PLAN] Score range: ${topRecipes[0]?.score} to ${topRecipes[topRecipes.length - 1]?.score}`);
+    
     // Prepare data for AI selection
     const pantryList = pantryItems?.map(item => `${item.ingredient_name} (${item.quantity || 'some'})`).join(', ') || 'No pantry items';
     
-    // Create recipe summaries for AI prompt
-    const recipeSummaries = scoredRecipes.slice(0, 50).map((recipe, index) => {
-      return `${index + 1}. ${recipe.title} (Score: ${recipe.score}, Time: ${recipe.ready_in_minutes}min, Calories: ${recipe.calories}, Price: $${recipe.price_per_serving?.toFixed(2) || 'N/A'})`;
-    }).join('\n');
+    // Create enhanced recipe summaries for AI prompt with score breakdown
+    const recipeSummaries = topRecipes.map((recipe, index) => {
+      const scoreDetails = `Budget:${recipe.scoreBreakdown.budget}, Health:${recipe.scoreBreakdown.health}, Time:${recipe.scoreBreakdown.time}, Complexity:${recipe.scoreBreakdown.complexity}, Preference:${recipe.scoreBreakdown.preference}`;
+      return `${index + 1}. ${recipe.title} 
+   Score: ${recipe.score} (${scoreDetails})
+   Time: ${recipe.ready_in_minutes}min | Calories: ${recipe.calories} | Price: $${recipe.price_per_serving?.toFixed(2) || 'N/A'}
+   Key Ingredients: ${recipe.ingredients.split('\n').slice(0, 3).join(', ')}...`;
+    }).join('\n\n');
 
-    const aiPrompt = `You are a meal planning expert. Select 7 diverse dinner recipes for a weekly meal plan based on the following criteria:
+    const aiPrompt = `You are an expert meal planner creating a weekly dinner plan. The recipes below are PRE-SCORED and RANKED based on the user's exact preferences - higher scores mean better matches.
 
 USER PROFILE:
 - Budget: ${profile.budget}
 - Health Goals: ${profile.health_goals}
-- Cooking Time Preference: ${profile.cooking_time}
+- Cooking Time: ${profile.cooking_time}
 - Skill Level: ${profile.skill_level}
 - Dietary Restrictions: ${profile.dietary_restrictions?.join(', ') || 'None'}
 - Cuisine Preferences: ${profile.cuisine_preferences?.join(', ') || 'Any'}
 
 PANTRY ITEMS: ${pantryList}
 
-AVAILABLE RECIPES (Top 50 by score):
+PRE-SCORED RECIPES (Top ${topRecipes.length} - Already Personalized):
 ${recipeSummaries}
 
-Please select exactly 7 recipes (one for each day Monday-Sunday) that:
-1. Maximize variety in cuisine types and cooking methods
-2. Consider the user's pantry items to minimize shopping needs
-3. Balance the weekly budget and nutrition
-4. Respect cooking time preferences
-5. Ensure good variety in protein sources
+IMPORTANT: These recipes are already scored and ranked by the user's preferences. Your job is to select 7 recipes that:
+1. PRIORITIZE HIGH-SCORING RECIPES (they match user preferences better)
+2. Maximize variety across the week (different cuisines, proteins, cooking methods)
+3. Utilize pantry items when possible to reduce shopping
+4. Balance nutrition and budget across all 7 days
+5. Consider cooking time distribution throughout the week
 
-Respond with ONLY a JSON array of 7 numbers corresponding to the recipe numbers (1-50) in order from Monday to Sunday. For example: [1, 15, 3, 22, 8, 31, 12]`;
+Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of recipe numbers (1-${topRecipes.length}). Example: [1, 5, 3, 12, 8, 15, 2]`;
 
     console.log('[GENERATE-WEEKLY-PLAN] Sending request to OpenAI for recipe selection');
 
@@ -168,11 +180,13 @@ Respond with ONLY a JSON array of 7 numbers corresponding to the recipe numbers 
       selectedRecipeIndices = [1, 2, 3, 4, 5, 6, 7];
     }
 
-    // Create weekly meal plan
+    // Create weekly meal plan using selected top recipes
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const weeklyMeals: DayMeal[] = days.map((day, index) => {
       const recipeIndex = selectedRecipeIndices[index] - 1; // Convert to 0-based index
-      const selectedRecipe = scoredRecipes[recipeIndex] || scoredRecipes[index % scoredRecipes.length];
+      const selectedRecipe = topRecipes[recipeIndex] || topRecipes[index % topRecipes.length];
+      
+      console.log(`[GENERATE-WEEKLY-PLAN] ${day}: ${selectedRecipe.title} (Score: ${selectedRecipe.score})`);
       
       return {
         day,
