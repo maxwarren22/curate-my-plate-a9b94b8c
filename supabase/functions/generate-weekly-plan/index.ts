@@ -180,11 +180,18 @@ Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of
       selectedRecipeIndices = [1, 2, 3, 4, 5, 6, 7];
     }
 
-    // Create weekly meal plan using selected top recipes
+    // Create weekly meal plan using selected top recipes with better variety
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const weeklyMeals: DayMeal[] = days.map((day, index) => {
       const recipeIndex = selectedRecipeIndices[index] - 1; // Convert to 0-based index
-      const selectedRecipe = topRecipes[recipeIndex] || topRecipes[index % topRecipes.length];
+      let selectedRecipe = topRecipes[recipeIndex];
+      
+      // If recipe index is invalid or recipe already used, pick next available
+      if (!selectedRecipe || weeklyMeals.find(meal => meal.mainDish?.id === selectedRecipe.id)) {
+        selectedRecipe = topRecipes.find(recipe => 
+          !weeklyMeals.find(meal => meal.mainDish?.id === recipe.id)
+        ) || topRecipes[index % topRecipes.length];
+      }
       
       console.log(`[GENERATE-WEEKLY-PLAN] ${day}: ${selectedRecipe.title} (Score: ${selectedRecipe.score})`);
       
@@ -281,15 +288,18 @@ Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of
       console.error('[GENERATE-WEEKLY-PLAN] Error processing shopping list:', listError);
     }
 
-    // Save shopping list
+    // Save shopping list with proper data
+    const shoppingListData = processedList?.ingredients || processedList?.processedIngredients || [];
+    console.log('[GENERATE-WEEKLY-PLAN] Saving shopping list:', shoppingListData);
+    
     const { error: shoppingError } = await supabaseClient
       .from('shopping_lists')
       .upsert({
         user_id: userId,
         week_start_date: weekStartDate.toISOString().split('T')[0],
         budget: profile.budget,
-        shopping_list: JSON.stringify([]),
-        ai_processed_ingredients: processedList?.processedIngredients || null
+        shopping_list: JSON.stringify(shoppingListData),
+        ai_processed_ingredients: processedList || null
       }, { onConflict: 'user_id,week_start_date' });
 
     if (shoppingError) {
