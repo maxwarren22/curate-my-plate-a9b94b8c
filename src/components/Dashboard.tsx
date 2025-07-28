@@ -206,14 +206,13 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         
         if (error) throw new Error(error.message);
 
-        if (data.mealPlan) {
-            setWeeklyPlan(data.mealPlan);
+        if (data.success) {
             toast({ title: "Success!", description: "Your new meal plan is ready." });
             await checkSubscription();
-            // Reload the complete data to get the new shopping list
+            // Reload the complete data to get the new meal plan and shopping list
             await loadInitialData();
         } else {
-            throw new Error(data.error || "Failed to get meal plan data from server.");
+            throw new Error(data.error || "Failed to generate meal plan");
         }
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Could not generate a new meal plan.";
