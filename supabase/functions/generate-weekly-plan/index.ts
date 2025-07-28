@@ -173,7 +173,9 @@ Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of
 
     let selectedRecipeIndices: number[];
     try {
-      selectedRecipeIndices = JSON.parse(aiSelection);
+      // Clean AI response by removing markdown code blocks if present
+      const cleanedSelection = aiSelection.replace(/```json\s*|\s*```/g, '').trim();
+      selectedRecipeIndices = JSON.parse(cleanedSelection);
     } catch (e) {
       console.error('[GENERATE-WEEKLY-PLAN] Failed to parse AI response, using fallback selection');
       // Fallback: select top 7 recipes with variety
@@ -182,17 +184,19 @@ Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of
 
     // Create weekly meal plan using selected top recipes with better variety
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const usedRecipeIds = new Set<string>();
     const weeklyMeals: DayMeal[] = days.map((day, index) => {
       const recipeIndex = selectedRecipeIndices[index] - 1; // Convert to 0-based index
       let selectedRecipe = topRecipes[recipeIndex];
       
       // If recipe index is invalid or recipe already used, pick next available
-      if (!selectedRecipe || weeklyMeals.find(meal => meal.mainDish?.id === selectedRecipe.id)) {
+      if (!selectedRecipe || usedRecipeIds.has(selectedRecipe.id)) {
         selectedRecipe = topRecipes.find(recipe => 
-          !weeklyMeals.find(meal => meal.mainDish?.id === recipe.id)
+          !usedRecipeIds.has(recipe.id)
         ) || topRecipes[index % topRecipes.length];
       }
       
+      usedRecipeIds.add(selectedRecipe.id);
       console.log(`[GENERATE-WEEKLY-PLAN] ${day}: ${selectedRecipe.title} (Score: ${selectedRecipe.score})`);
       
       return {
