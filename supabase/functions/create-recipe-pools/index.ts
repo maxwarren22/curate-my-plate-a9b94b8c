@@ -61,7 +61,18 @@ serve(async (req) => {
       throw new Error('SPOONACULAR_API_KEY not found');
     }
 
-    const { cuisines = [], dietaryRestrictions = [] } = await req.json();
+    // Handle empty request body gracefully
+    let requestBody = {};
+    try {
+      const bodyText = await req.text();
+      if (bodyText.trim()) {
+        requestBody = JSON.parse(bodyText);
+      }
+    } catch (parseError) {
+      console.log('[CREATE-RECIPE-POOLS] No valid JSON body, using defaults');
+    }
+
+    const { cuisines = [], dietaryRestrictions = [] } = requestBody;
     
     console.log(`[CREATE-RECIPE-POOLS] Requested cuisines: ${cuisines.join(', ')}`);
     console.log(`[CREATE-RECIPE-POOLS] Requested dietary restrictions: ${dietaryRestrictions.join(', ')}`);
