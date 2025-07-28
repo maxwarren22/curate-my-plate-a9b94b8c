@@ -96,6 +96,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
       await checkSubscription();
       await loadPantryData();
 
+      console.log('🔍 Loading meal history for user:', user.id);
       const { data: mealHistory, error: mealError } = await supabase
         .from('user_meal_history')
         .select(`
@@ -109,6 +110,8 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         .order('meal_date', { ascending: true })
         .gte('meal_date', new Date().toISOString().split('T')[0]) // Only get current and future meals
         .limit(7);
+
+      console.log('📊 Meal history response:', { mealHistory, mealError });
 
       if (mealError) throw mealError;
 
