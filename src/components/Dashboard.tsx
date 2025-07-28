@@ -117,14 +117,22 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
 
       if (mealHistory && mealHistory.length > 0) {
         const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        const transformedPlan = mealHistory.map((entry: any) => ({
+        const transformedPlan = mealHistory.map((entry: any, index: number) => ({
             day: daysOfWeek[new Date(entry.meal_date + 'T00:00:00').getDay()],
             main_dish: entry.main_dish,
             side_dish: entry.side_dish,
             total_time_to_cook: entry.total_time_to_cook,
             cooking_tips: entry.cooking_tips,
+            meal_date: entry.meal_date, // Add meal_date for unique keys
         }));
-        setWeeklyPlan(transformedPlan);
+        
+        // Remove duplicates by day to avoid React key warnings
+        const uniquePlan = transformedPlan.filter((meal, index, arr) => 
+          arr.findIndex(m => m.day === meal.day) === index
+        );
+        
+        console.log('📅 Transformed meal plan:', uniquePlan);
+        setWeeklyPlan(uniquePlan);
       } else {
         setWeeklyPlan([]);
       }
@@ -570,8 +578,8 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
             ) : (
               <div className="space-y-8">
                 {weeklyPlan.length > 0 ? (
-                    weeklyPlan.map((mealDay) => (
-                      <div key={mealDay.day}>
+                    weeklyPlan.map((mealDay, index) => (
+                      <div key={`${mealDay.day}-${mealDay.meal_date || index}`}>
                         <h3 className="text-2xl font-bold text-foreground mb-4 border-b pb-2">{mealDay.day}</h3>
                         <Card className="group cursor-pointer" onClick={() => setSelectedMealDay(mealDay)}>
                            <div className="grid md:grid-cols-3">

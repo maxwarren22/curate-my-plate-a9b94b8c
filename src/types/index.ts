@@ -31,6 +31,7 @@ export interface MealDay {
   side_dish?: Recipe; // Make side dish optional and keep full Recipe type
   total_time_to_cook: string;
   cooking_tips?: string;
+  meal_date?: string; // Add meal_date for unique keys
 }
 
 export interface PantryItem {
