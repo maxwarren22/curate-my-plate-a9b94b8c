@@ -177,8 +177,22 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
             cookTime: userProfile.cookingTime,
         };
 
-        const { data, error } = await supabase.functions.invoke('generate-meal-plan', {
-            body: requestBody,
+        // First, ensure we have recipe pools
+        const { data: poolData, error: poolError } = await supabase.functions.invoke('create-recipe-pools');
+        if (poolError) throw new Error(`Recipe pool creation failed: ${poolError.message}`);
+
+        // Then create user pool with scoring
+        const { data: userPoolData, error: userPoolError } = await supabase.functions.invoke('create-user-pool', {
+            body: { userId: user.id }
+        });
+        if (userPoolError) throw new Error(`User pool creation failed: ${userPoolError.message}`);
+
+        // Finally generate the weekly plan
+        const { data, error } = await supabase.functions.invoke('generate-weekly-plan', {
+            body: { 
+                userId: user.id,
+                userPoolId: userPoolData.userPoolId 
+            },
         });
         
         if (error) throw new Error(error.message);

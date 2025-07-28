@@ -84,7 +84,14 @@ export const PantryManager = ({ items, onAddItem, onUpdateItemQuantity, onRemove
                 <div key={item.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                   <p className="font-medium">{item.ingredient_name}</p>
                   <div className="flex items-center gap-2">
-                    <Button size="icon" variant="ghost" onClick={() => onUpdateItemQuantity(item.id, parseInt(item.quantity) - 1)}>
+                    <Button size="icon" variant="ghost" onClick={() => {
+                      const currentQuantity = parseInt(item.quantity) || 1;
+                      if (currentQuantity > 1) {
+                        onUpdateItemQuantity(item.id, currentQuantity - 1);
+                      } else {
+                        onRemoveItem(item.id);
+                      }
+                    }}>
                       <Minus className="w-4 h-4" />
                     </Button>
                     <span>{item.quantity}</span>

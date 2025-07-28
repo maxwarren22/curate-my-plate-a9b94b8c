@@ -195,7 +195,8 @@ Please:
 3. Use proper plural/singular forms
 4. Make vague items more specific (e.g., "1 cheese" → "8 oz cheddar cheese")
 5. Convert weird formats to common vernacular (e.g., "1 Juice of 1 Lemon" → "1 lemon (for juice)")
-6. Categorize into: Produce, Meat & Seafood, Dairy & Eggs, Grains & Bakery, Pantry Staples, Canned/Packaged, Other
+6. Convert vague quantities to grocery store formats (e.g., "2 cups tomato sauce" → "1 can (14 oz) tomato sauce", "to taste pepper" → "1 container black pepper")
+7. Categorize into: Produce, Meat & Seafood, Dairy & Eggs, Grains & Bakery, Pantry Staples, Canned/Packaged, Other
 7. Estimate realistic grocery store prices in USD
 8. Exclude pantry items completely
 
