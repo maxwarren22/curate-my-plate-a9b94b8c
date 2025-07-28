@@ -211,25 +211,34 @@ Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of
     const allRecipes = weeklyMeals.map(meal => meal.mainDish);
     
     for (const recipe of allRecipes) {
-      const { error: recipeError } = await supabaseClient
+      // Check if recipe already exists first
+      const { data: existingRecipe } = await supabaseClient
         .from('recipes')
-        .upsert({
-          id: recipe.id,
-          spoonacular_id: recipe.spoonacular_id,
-          title: recipe.title,
-          ingredients: recipe.ingredients,
-          recipe: recipe.recipe,
-          image_url: recipe.image_url,
-          servings: recipe.servings,
-          ready_in_minutes: recipe.ready_in_minutes,
-          calories: recipe.calories,
-          price_per_serving: recipe.price_per_serving,
-          health_score: recipe.health_score,
-          source_type: 'spoonacular'
-        }, { onConflict: 'spoonacular_id' });
+        .select('id')
+        .eq('spoonacular_id', recipe.spoonacular_id)
+        .single();
 
-      if (recipeError) {
-        console.error('[GENERATE-WEEKLY-PLAN] Error saving recipe:', recipeError);
+      if (!existingRecipe) {
+        const { error: recipeError } = await supabaseClient
+          .from('recipes')
+          .insert({
+            id: recipe.id,
+            spoonacular_id: recipe.spoonacular_id,
+            title: recipe.title,
+            ingredients: recipe.ingredients,
+            recipe: recipe.recipe,
+            image_url: recipe.image_url,
+            servings: recipe.servings,
+            ready_in_minutes: recipe.ready_in_minutes,
+            calories: recipe.calories,
+            price_per_serving: recipe.price_per_serving,
+            health_score: recipe.health_score,
+            source_type: 'spoonacular'
+          });
+
+        if (recipeError) {
+          console.error('[GENERATE-WEEKLY-PLAN] Error saving recipe:', recipeError);
+        }
       }
     }
 
@@ -266,17 +275,10 @@ Select exactly 7 recipes (Monday-Sunday) by responding with ONLY a JSON array of
     // Generate shopping list
     console.log('[GENERATE-WEEKLY-PLAN] Generating shopping list...');
     
-    const allIngredients: Array<{ name: string; quantity: string; recipe: string }> = [];
+    const allIngredients: string[] = [];
     
     weeklyMeals.forEach(meal => {
-      const ingredientLines = meal.mainDish.ingredients.split('\n').filter(line => line.trim());
-      ingredientLines.forEach(ingredient => {
-        allIngredients.push({
-          name: ingredient.trim(),
-          quantity: '1', // Will be processed by AI
-          recipe: meal.mainDish.title
-        });
-      });
+      allIngredients.push(meal.mainDish.ingredients);
     });
 
     // Process shopping list with OpenAI

@@ -155,28 +155,44 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let requestData;
   try {
-    const { ingredients, pantryItems = [] } = await req.json();
-    
-    if (!ingredients || ingredients.length === 0) {
-      return new Response(JSON.stringify({ 
-        ingredients: [], 
-        totalEstimatedCost: 0, 
-        categorizedList: {} 
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    requestData = await req.json();
+  } catch (e) {
+    console.error('Failed to parse request body:', e);
+    return new Response(JSON.stringify({ 
+      error: 'Invalid request body',
+      ingredients: [], 
+      totalEstimatedCost: 0, 
+      categorizedList: {} 
+    }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      console.error('OpenAI API key not configured');
-      // Fallback to basic parsing when no OpenAI key
-      return new Response(JSON.stringify(createFallbackShoppingList(ingredients, pantryItems)), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  const { ingredients, pantryItems = [] } = requestData;
+  
+  if (!ingredients || ingredients.length === 0) {
+    return new Response(JSON.stringify({ 
+      ingredients: [], 
+      totalEstimatedCost: 0, 
+      categorizedList: {} 
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 
+  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!openAIApiKey) {
+    console.error('OpenAI API key not configured');
+    // Fallback to basic parsing when no OpenAI key
+    return new Response(JSON.stringify(createFallbackShoppingList(ingredients, pantryItems)), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
     // Flatten all ingredients into a single string
     const allIngredients = ingredients.join('\n');
     const pantryList = pantryItems.map((item: any) => `${item.quantity || ''} ${item.ingredient_name}`.trim()).join(', ');
@@ -281,24 +297,10 @@ Make sure quantities are reasonable, names are clear, and prices reflect typical
     console.error('Error in process-shopping-list function:', error);
     
     // If OpenAI fails, fall back to basic processing
-    try {
-      console.log('OpenAI failed, falling back to basic processing');
-      const { ingredients, pantryItems = [] } = await req.json();
-      const fallbackResult = createFallbackShoppingList(ingredients, pantryItems);
-      return new Response(JSON.stringify(fallbackResult), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    } catch (fallbackError) {
-      console.error('Fallback processing also failed:', fallbackError);
-      return new Response(JSON.stringify({ 
-        error: 'Shopping list processing failed',
-        ingredients: [], 
-        totalEstimatedCost: 0, 
-        categorizedList: {} 
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    console.log('OpenAI failed, falling back to basic processing');
+    const fallbackResult = createFallbackShoppingList(ingredients, pantryItems);
+    return new Response(JSON.stringify(fallbackResult), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 });
