@@ -180,12 +180,21 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
         // First, ensure we have recipe pools
         const { data: poolData, error: poolError } = await supabase.functions.invoke('create-recipe-pools');
         if (poolError) throw new Error(`Recipe pool creation failed: ${poolError.message}`);
+        if (!poolData?.poolId) throw new Error('No pool ID returned from recipe pool creation');
+
+        console.log('Recipe pool created with ID:', poolData.poolId);
 
         // Then create user pool with scoring
         const { data: userPoolData, error: userPoolError } = await supabase.functions.invoke('create-user-pool', {
-            body: { userId: user.id }
+            body: { 
+                userId: user.id,
+                poolId: poolData.poolId 
+            }
         });
         if (userPoolError) throw new Error(`User pool creation failed: ${userPoolError.message}`);
+        if (!userPoolData?.userPoolId) throw new Error('No user pool ID returned');
+
+        console.log('User pool created with ID:', userPoolData.userPoolId);
 
         // Finally generate the weekly plan
         const { data, error } = await supabase.functions.invoke('generate-weekly-plan', {
