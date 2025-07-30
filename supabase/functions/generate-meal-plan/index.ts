@@ -7,19 +7,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+async function getSupabaseClient(serviceRoleKey: string) {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  return createClient(supabaseUrl, serviceRoleKey);
+}
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-serve(async (req) => {
-  console.log('🚀 Meal plan generation function invoked.');
-
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+export async function generateMealPlan(req: Request, supabase: any, openAIApiKey: string) {
   try {
     const authHeader = req.headers.get('Authorization')!;
     const token = authHeader.replace('Bearer ', '');
@@ -34,6 +27,7 @@ serve(async (req) => {
     }
     console.log(`✅ User authenticated: ${user.id}`);
 
+    // The rest of the function logic remains the same...
     // 1. Check subscription status and generation quota
     console.log('🔍 Checking subscription status...');
     const { data: profile, error: profileError } = await supabase
@@ -157,7 +151,7 @@ serve(async (req) => {
 
     // 4. Save the meal plan to the database
     console.log('💾 Saving meal plan to database...');
-    await saveMealPlanToDatabase(user.id, mealPlan);
+    await saveMealPlanToDatabase(user.id, mealPlan, supabase);
     console.log('✅ Meal plan saved successfully.');
 
     // 5. Generate the shopping list
@@ -201,9 +195,23 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
+}
+
+serve(async (req) => {
+  console.log('🚀 Meal plan generation function invoked.');
+
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+  const supabase = await getSupabaseClient(supabaseServiceKey);
+
+  return await generateMealPlan(req, supabase, openAIApiKey);
 });
 
-async function saveMealPlanToDatabase(userId: string, mealPlan: any[]): Promise<void> {
+async function saveMealPlanToDatabase(userId: string, mealPlan: any[], supabase: any): Promise<void> {
   const recipesToSave = [];
   for (const day of mealPlan) {
     if (day.main_dish) {
