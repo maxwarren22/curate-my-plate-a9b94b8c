@@ -188,7 +188,7 @@ CREATE TABLE IF NOT EXISTS "public"."liked_recipes" (
 ALTER TABLE "public"."liked_recipes" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."meal_plans" (
+CREATE TABLE IF NOT EXISTS "public"."user_meal_history" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
     "main_dish_recipe_id" "uuid" NOT NULL,
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS "public"."meal_plans" (
 );
 
 
-ALTER TABLE "public"."meal_plans" OWNER TO "postgres";
+ALTER TABLE "public"."user_meal_history" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."pantry_items" (
@@ -256,17 +256,8 @@ CREATE TABLE IF NOT EXISTS "public"."recipes" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "embedding" "public"."vector"(1536),
     "description" "text",
-    "spoonacular_id" integer,
-    "image_url" "text",
-    "source_url" "text",
     "prep_time" integer,
-    "cook_time" integer,
-    "ready_in_minutes" integer,
-    "health_score" integer,
-    "price_per_serving" numeric,
-    "nutrition" "jsonb",
-    "source_type" "text" DEFAULT 'ai'::"text",
-    CONSTRAINT "recipes_source_type_check" CHECK (("source_type" = ANY (ARRAY['ai'::"text", 'spoonacular'::"text"])))
+    "cook_time" integer
 );
 
 
@@ -347,21 +338,13 @@ ALTER TABLE ONLY "public"."shopping_lists"
 
 
 
-ALTER TABLE ONLY "public"."meal_plans"
+ALTER TABLE ONLY "public"."user_meal_history"
     ADD CONSTRAINT "user_meal_history_pkey" PRIMARY KEY ("id");
 
 
 
-ALTER TABLE ONLY "public"."meal_plans"
+ALTER TABLE ONLY "public"."user_meal_history"
     ADD CONSTRAINT "user_meal_history_user_id_meal_date_key" UNIQUE ("user_id", "meal_date");
-
-
-
-CREATE INDEX "idx_recipes_source_type" ON "public"."recipes" USING "btree" ("source_type");
-
-
-
-CREATE INDEX "idx_recipes_spoonacular_id" ON "public"."recipes" USING "btree" ("spoonacular_id");
 
 
 
@@ -369,7 +352,7 @@ CREATE INDEX "idx_recipes_title" ON "public"."recipes" USING "btree" ("title");
 
 
 
-CREATE INDEX "idx_user_meal_history_user_date" ON "public"."meal_plans" USING "btree" ("user_id", "meal_date");
+CREATE INDEX "idx_user_meal_history_user_date" ON "public"."user_meal_history" USING "btree" ("user_id", "meal_date");
 
 
 
@@ -400,8 +383,8 @@ ALTER TABLE ONLY "public"."disliked_recipes"
 
 
 
-ALTER TABLE ONLY "public"."meal_plans"
-    ADD CONSTRAINT "fk_meal_plans_recipes" FOREIGN KEY ("main_dish_recipe_id") REFERENCES "public"."recipes"("id");
+ALTER TABLE ONLY "public"."user_meal_history"
+    ADD CONSTRAINT "fk_user_meal_history_recipes" FOREIGN KEY ("main_dish_recipe_id") REFERENCES "public"."recipes"("id");
 
 
 
@@ -435,17 +418,17 @@ ALTER TABLE ONLY "public"."shopping_lists"
 
 
 
-ALTER TABLE ONLY "public"."meal_plans"
+ALTER TABLE ONLY "public"."user_meal_history"
     ADD CONSTRAINT "user_meal_history_main_dish_recipe_id_fkey" FOREIGN KEY ("main_dish_recipe_id") REFERENCES "public"."recipes"("id") ON DELETE CASCADE;
 
 
 
-ALTER TABLE ONLY "public"."meal_plans"
+ALTER TABLE ONLY "public"."user_meal_history"
     ADD CONSTRAINT "user_meal_history_side_dish_recipe_id_fkey" FOREIGN KEY ("side_dish_recipe_id") REFERENCES "public"."recipes"("id") ON DELETE CASCADE;
 
 
 
-ALTER TABLE ONLY "public"."meal_plans"
+ALTER TABLE ONLY "public"."user_meal_history"
     ADD CONSTRAINT "user_meal_history_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
@@ -470,7 +453,7 @@ CREATE POLICY "Users can manage their own liked recipes" ON "public"."liked_reci
 
 
 
-CREATE POLICY "Users can manage their own meal history" ON "public"."meal_plans" USING (("auth"."uid"() = "user_id"));
+CREATE POLICY "Users can manage their own meal history" ON "public"."user_meal_history" USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -499,7 +482,7 @@ ALTER TABLE "public"."disliked_recipes" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."liked_recipes" ENABLE ROW LEVEL SECURITY;
 
 
-ALTER TABLE "public"."meal_plans" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "public"."user_meal_history" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."pantry_items" ENABLE ROW LEVEL SECURITY;
@@ -1595,9 +1578,9 @@ GRANT ALL ON TABLE "public"."liked_recipes" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."meal_plans" TO "anon";
-GRANT ALL ON TABLE "public"."meal_plans" TO "authenticated";
-GRANT ALL ON TABLE "public"."meal_plans" TO "service_role";
+GRANT ALL ON TABLE "public"."user_meal_history" TO "anon";
+GRANT ALL ON TABLE "public"."user_meal_history" TO "authenticated";
+GRANT ALL ON TABLE "public"."user_meal_history" TO "service_role";
 
 
 

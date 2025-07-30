@@ -180,51 +180,26 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     }
     setGeneratingPlan(true);
     try {
-        const pantryItemNames = pantryItems.map(item => item.ingredient_name);
-        const requestBody = {
-            userId: user.id,
-            pantryItems: pantryItemNames,
-            dietaryPreferences: userProfile.dietaryRestrictions.join(', '),
-            cookTime: userProfile.cookingTime,
-        };
-
-        // First, ensure we have recipe pools
-        const { data: poolData, error: poolError } = await supabase.functions.invoke('create-recipe-pools');
-        if (poolError) throw new Error(`Recipe pool creation failed: ${poolError.message}`);
-        if (!poolData?.poolId) throw new Error('No pool ID returned from recipe pool creation');
-
-        console.log('Recipe pool created with ID:', poolData.poolId);
-
-        // Then create user pool with scoring
-        const { data: userPoolData, error: userPoolError } = await supabase.functions.invoke('create-user-pool', {
-            body: { 
-                userId: user.id,
-                poolId: poolData.poolId 
-            }
-        });
-        if (userPoolError) throw new Error(`User pool creation failed: ${userPoolError.message}`);
-        if (!userPoolData?.userPoolId) throw new Error('No user pool ID returned');
-
-        console.log('User pool created with ID:', userPoolData.userPoolId);
-
-        // Finally generate the weekly plan
-        const { data, error } = await supabase.functions.invoke('generate-weekly-plan', {
-            body: { 
-                userId: user.id,
-                userPoolId: userPoolData.userPoolId 
-            },
-        });
-        
-        if (error) throw new Error(error.message);
-
-        if (data.success) {
-            toast({ title: "Success!", description: "Your new meal plan is ready." });
-            await checkSubscription();
-            // Reload the complete data to get the new meal plan and shopping list
-            await loadInitialData();
+      const { data, error } = await supabase.functions.invoke('generate-meal-plan');
+      
+      if (error) {
+        // Check for specific error message from the function
+        if (error.message.includes("No meal generations remaining")) {
+          toast({
+            title: "Upgrade Required",
+            description: "You have no meal generations remaining. Please upgrade your plan to continue.",
+            variant: "destructive",
+          });
         } else {
-            throw new Error(data.error || "Failed to generate meal plan");
+          throw new Error(error.message);
         }
+      } else if (data.success) {
+        toast({ title: "Success!", description: "Your new meal plan is ready." });
+        await checkSubscription();
+        await loadInitialData(); // Reload data to display the new plan
+      } else {
+        throw new Error(data.error || "Failed to generate meal plan");
+      }
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Could not generate a new meal plan.";
         toast({ title: "Error", description: errorMessage, variant: "destructive" });
@@ -403,7 +378,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
       }));
 
       // Call the process-shopping-list function
-      const { data: processedList, error: processError } = await supabase.functions.invoke('process-shopping-list', {
+      const { data: processedList, error: processError } = await supabase.functions.invoke('generate-shopping-list', {
         body: {
           ingredients: allIngredients,
           pantryItems: pantryItemsFormatted
@@ -507,7 +482,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
     });
 
     // Set the filtered budget
-    setShoppingListBudget(`$${Math.round(totalCost)}`);
+    setShoppingListBudget(`${Math.round(totalCost)}`);
 
     // Convert to display format and sort
     const categoryOrder = ['Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Grains & Bakery', 'Pantry Staples', 'Canned/Packaged', 'Other'];
@@ -585,7 +560,7 @@ export const Dashboard = ({ userProfile }: DashboardProps) => {
                            <div className="grid md:grid-cols-3">
                             <div className="md:col-span-1 h-48 md:h-full overflow-hidden rounded-l-lg">
                               <img 
-                                src={mealDay.main_dish?.image_url || "/placeholder.svg"} 
+                                src={"/placeholder.svg"} 
                                 alt={mealDay.main_dish?.title || "Meal"} 
                                 className="w-full h-full object-cover"
                               />

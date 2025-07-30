@@ -1,124 +1,127 @@
-import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "npm:resend@2.0.0";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Define a type for the user profile data
-interface UserProfile {
-  user_id: string;
-  meal_plan_start_day: string;
-  email: string;
-}
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const resendApiKey = Deno.env.get('RESEND_API_KEY'); // Assumes Resend is used for emails
 
-// Helper to log steps consistently
-const logStep = (step: string, details?: Record<string, unknown>) => {
-  console.log(`[SEND-WEEKLY-PLAN] ${step}`, details ? JSON.stringify(details) : '');
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+const getDayOfWeek = () => {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return days[new Date().getDay()];
 };
 
-serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+serve(async (_req) => {
   try {
-    // Check for required environment variables at the start
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    const functionSecret = Deno.env.get("FUNCTION_SECRET");
-    const siteUrl = Deno.env.get("SITE_URL") || "https://your-app.com";
-
-    if (!supabaseUrl || !serviceRoleKey || !resendApiKey || !functionSecret) {
-      throw new Error("Missing required environment variables.");
+    if (!resendApiKey) {
+      throw new Error("Email service API key is missing. Cannot send emails.");
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (authHeader !== `Bearer ${functionSecret}`) {
-      logStep("ERROR: Unauthorized access attempt");
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-    }
+    const currentDay = getDayOfWeek();
+    console.log(`Starting weekly plan job for: ${currentDay}`);
 
-    logStep("Function invoked with valid secret");
+    // 1. Fetch all active subscribers who should receive their plan today
+    const { data: users, error: userError } = await supabase
+      .from('profiles')
+      .select('user_id, display_name, users(email)')
+      .eq('plan_generation_day', currentDay)
+      .eq('subscription_status', 'active');
 
-    const supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey);
-    const resend = new Resend(resendApiKey);
-
-    const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const currentDay = daysOfWeek[new Date().getDay()];
-
-    logStep(`Today is ${currentDay}. Checking for users with this start day.`);
-
-    const { data: profiles, error: profileError } = await supabaseAdminClient
-      .from('user_profiles')
-      .select('user_id, meal_plan_start_day, email')
-      .eq('meal_plan_start_day', currentDay);
-
-    if (profileError) {
-      throw new Error(`Failed to fetch user profiles: ${profileError.message}`);
-    }
-
-    if (!profiles || profiles.length === 0) {
-      logStep(`No users found with a start day of ${currentDay}. Exiting.`);
+    if (userError) throw new Error(`Failed to fetch users: ${userError.message}`);
+    if (!users || users.length === 0) {
+      console.log(`No users scheduled for meal plan generation today.`);
       return new Response(JSON.stringify({ success: true, message: "No users to process." }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const typedProfiles: UserProfile[] = profiles;
-    logStep(`Found ${typedProfiles.length} user(s) to process.`);
+    console.log(`Found ${users.length} user(s) to process.`);
 
-    for (const profile of typedProfiles) {
+    // 2. Process each user
+    for (const profile of users) {
+      const { user_id, display_name } = profile;
+      const userEmail = profile.users?.email;
+
+      if (!userEmail) {
+        console.error(`Skipping user ${user_id} due to missing email.`);
+        continue;
+      }
+
       try {
-        logStep("Processing user", { userId: profile.user_id });
-
-        const { error: invokeError } = await supabaseAdminClient.functions.invoke(
-          'generate-meal-plan',
-          { body: { user_id: profile.user_id } }
-        );
-
-        if (invokeError) {
-          throw new Error(`Failed to invoke generate-meal-plan: ${invokeError.message}`);
-        }
-
-        logStep("Meal plan generated successfully for user", { userId: profile.user_id });
-
-        await resend.emails.send({
-          from: "Curate My Plate <noreply@resend.dev>",
-          to: [profile.email],
-          subject: `🍽️ Your New Weekly Meal Plan is Ready!`,
-          html: `
-            <h1>Your Meal Plan is Here!</h1>
-            <p>Hi there,</p>
-            <p>Your personalized meal plan for the week is ready. Head over to your dashboard to see what's cooking!</p>
-            <a href="${siteUrl}/dashboard">View Your Plan</a>
-            <p>Happy cooking!</p>
-            <p>The Curate My Plate Team</p>
-          `,
+        console.log(`Generating plan for user: ${user_id}`);
+        // 2a. Generate a new meal plan
+        // We need to invoke the function as the specific user
+        const { data: planData, error: planError } = await supabase.functions.invoke(`generate-meal-plan`, {
+            headers: {
+                'Authorization': `Bearer ${supabaseServiceKey}` // Using service key to act on behalf of user
+            },
+            body: { userId: user_id } // Pass user ID to identify the user
         });
 
-        logStep("Email notification sent to user", { userId: profile.user_id, email: profile.email });
+        if (planError) throw new Error(`Failed to generate meal plan: ${planError.message}`);
+        
+        const mealPlan = planData.mealPlan;
 
-      } catch (userError) {
-        const message = userError instanceof Error ? userError.message : "An unknown error occurred";
-        logStep("ERROR processing user", { userId: profile.user_id, error: message });
+        console.log(`Generating PDF for user: ${user_id}`);
+        // 2b. Generate PDF of the new plan
+        const { data: pdfData, error: pdfError } = await supabase.functions.invoke('generate-pdf', {
+          body: { type: 'full', meals: mealPlan, shoppingList: [] } // Assuming shopping list is handled separately or not in email
+        });
+
+        if (pdfError) throw new Error(`PDF generation failed: ${pdfError.message}`);
+
+        console.log(`Sending email to user: ${user_id}`);
+        // 2c. Email the PDF
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'noreply@curatemyplate.com', // Replace with your sending domain
+            to: userEmail,
+            subject: 'Your Weekly Meal Plan is Here!',
+            html: `
+              <h1>Hi ${display_name || 'there'},</h1>
+              <p>Your new meal plan from Curate My Plate is attached.</p>
+              <p>Happy cooking!</p>
+            `,
+            attachments: [{
+              filename: 'weekly-meal-plan.pdf',
+              content: pdfData.pdf,
+            }],
+          }),
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.json();
+          throw new Error(`Failed to send email: ${JSON.stringify(errorBody)}`);
+        }
+
+        console.log(`Successfully processed and emailed plan for user: ${user_id}`);
+
+      } catch (userProcessingError) {
+        console.error(`Error processing user ${user_id}:`, userProcessingError.message);
+        // Continue to the next user
       }
     }
 
-    return new Response(JSON.stringify({ success: true, processed_users: typedProfiles.length }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return new Response(JSON.stringify({ success: true, message: "Weekly plans sent successfully." }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    const message = error instanceof Error ? error.message : "An unknown server error occurred.";
-    const stack = error instanceof Error ? error.stack : undefined;
-    logStep("FATAL ERROR", { message, stack });
-    return new Response(JSON.stringify({ error: message }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    console.error('Error in send-weekly-plan function:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
